@@ -10,6 +10,7 @@
 #########################
 ###  Configuration, Setup
 
+require_once(dirname(__FILE__) .'/config.php');
 require_once(dirname(__FILE__) .'/debug.inc.php');
 
 ###  Globals
@@ -24,9 +25,6 @@ if ( is_dir("/sandbox/cvsroot") ) $CVS_CMD_4CO    = 'cd ' .$_SERVER['PROJECT_CVS
 $cvs_cache = array();
 $MAX_BATCH_SIZE = 500;
 $MAX_BATCH_STRING_SIZE = 4096;
-function onAlpha() { return    preg_match('/dev/',  $_SERVER['HTTP_HOST']) ? true : false; }
-function onBeta()  { return    preg_match('/beta/', $_SERVER['HTTP_HOST']) ? true : false; }
-function onLive()  { return ( ! onAlpha() && ! onBeta() ) ? true : false; }
 
 
 
@@ -1091,6 +1089,7 @@ ENDSCRIPT;
 }
 
 function env_header() {
+    global $PROJECT_STAGING_AREAS, $PROJECT_SANDBOX_AREAS;
 
     ###  A line of status for sandbox location
     $ret = "<table width=\"100%\" cellspacing=0 cellpadding=0 border=0><tr><td><div style=\"font-size:70%\">";
@@ -1105,12 +1104,25 @@ function env_header() {
     $query_string = preg_replace('/[\&\?](cmd|command_output|tag)=[^\&]+/','',$query_string);
     $query_string = preg_replace('/action=(update|tag)/','action=view_project',$query_string);
     
-    $ret .= "  <a        href=\"https://admin.beta.project.org/project_manager/?$query_string\">".  (preg_match('/\.beta($|\.project)/', $uri, $m)             ? "<b>" : "") ."QA Staging Sandbox</b></a>\n";
-    $ret .= "| <a   href=\"https://admin.project.org/project_manager/?$query_string\">".            (! preg_match('/\.(beta|l?dev)($|\.project)/', $uri, $m)  ? "<b>" : "") ."Live Production</b></a>\n";
-    $ret .= ": <b>Switch to Staging Area</b>";
-    $ret .= "<br><a href=\"http://admin.dave.dev.project.org/project_manager/?$query_string\">".    (preg_match('/(^|\.)dave\./', $uri, $m)                    ? "<b>" : "") ."Dave</b></a>\n";
-    $ret .= "  | <a href=\"http://admin.qa.dev.project.org/project_manager/?$query_string\">".      (preg_match('/(^|\.)qa\./', $uri, $m)                      ? "<b>" : "") ."QA User</b></a>\n";
-    $ret .= ": <b>Switch to Sandbox</b>";
+    ###  Output Staging Area Switch line
+    $tmp = array();
+    foreach ( $PROJECT_STAGING_AREAS as $area ) {
+        $selected = false;
+        if ( ! empty( $area['test_by_func'] ) )   $selected = call_user_func($area['test_by_func']);
+        if ( ! empty( $area['test_uri_regex'] ) ) $selected = preg_match($area['test_uri_regex'], $uri);
+        $tmp[] = "<a href=\"http://". $area['host'] . $_SERVER['SCRIPT_NAME'] ."?". $query_string ."\">".  ($selected ? "<b>" : "") . $area['label'] ."</b></a>";
+    }
+    $ret .= '  '. join("\n|  ", $tmp). ": <b>Switch to Staging Area</b>";
+
+    ###  Output Sandbox Switch line
+    $tmp = array();
+    foreach ( $PROJECT_SANDBOX_AREAS as $area ) {
+        $selected = false;
+        if ( ! empty( $area['test_by_func'] ) )   $selected = call_user_func($area['test_by_func']);
+        if ( ! empty( $area['test_uri_regex'] ) ) $selected = preg_match($area['test_uri_regex'], $uri);
+        $tmp[] = "<a href=\"http://". $area['host'] . $_SERVER['SCRIPT_NAME'] ."?". $query_string ."\">".  ($selected ? "<b>" : "") . $area['label'] ."</b></a>";
+    }
+    $ret .= '<br>'. join("\n|  ", $tmp) . ": <b>Switch to Sandbox</b>";
     $ret .= "</div></td></td></table>";
 
     return $ret;

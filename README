@@ -1,0 +1,14 @@
+For now, I've put both CVS and the SVN versions side-by-side in
+the docroot folder.  The CVS version is frest from the rough port
+from Perl, and I barely got it to compile (NOTE, I skipped over
+the Remote Call stuff, which shouldn't be too hard to port)
+
+TODO:
+1) Finish porting the remote Perl-to-PHP port for CVS
+2) Find the rest of the bugs in the CVS frmo the Perl Port
+3) Finish the SVN version:
+    a) tags aren't working at all
+    b) updates aren't working
+    c) permissions for running SVN over https AUTH still need working out
+4) Abstract the version system to a config param (unify the 2 dirs)
+5) Explain (and make easier) to people how to install the SUDO perms of the APACHE-running-CVS bits
