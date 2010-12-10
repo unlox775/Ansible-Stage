@@ -3,7 +3,7 @@
 #########################
 ###  Project Manager
 #
-# Version : $Id: project_manager.php,v 1.2 2010/11/19 15:59:24 dave Exp $
+# Version : $Id: index.pl,v 1.1 2010/11/17 23:34:19 project Exp $
 #
 #########################
 
@@ -12,48 +12,35 @@
 
 require_once(dirname(__FILE__) .'/config.php');
 require_once(dirname(__FILE__) .'/debug.inc.php');
+require_once(dirname(__FILE__) .'/File_NFSLock.class.php');
 
 # phpinfo(); exit;
 
 ###  Globals
-$SVN_CMD =     'cd ' .$_SERVER['PROJECT_SVN_BASE']. ';      /usr/bin/svn ';
-# $SVN_CMD_4CO = 'cd ' .$_SERVER['PROJECT_SVN_BASE']. '/..; /usr/bin/svn ';
+$SVN_CMD_PREFIX =     'cd ' .$_SERVER['PROJECT_SVN_BASE']. ';      /usr/bin/';
+# $SVN_CMD_PREFIX_4CO = 'cd ' .$_SERVER['PROJECT_SVN_BASE']. '/..; /usr/bin/';
 
 $MAX_BATCH_SIZE = 500;
 $MAX_BATCH_STRING_SIZE = 4096;
 $svn_cache = array();
 
-# ###  Connect to the tags DB
-# if ( ! file_exists( $SYSTEM_TAGS_DB ) ) $INIT_DB_NOW = true;
-# $PROJECT_DBH = sqlite_open($SYSTEM_TAGS_DB);
-# if ( ! empty($INIT_DB_NOW) ) {
-#     sqlite_exec($PROJECT_DBH, "CREATE TABLE file_tag (
-#                                   file      character varying(1000) NOT NULL,
-#                                   tag       character varying(25) NOT NULL,
-#                                   revision  int NOT NULL,
-#                                   CONSTRAINT file_tag_pk PRIMARY KEY ( file, tag )
-#                                 )
-#                                ");
-# }                                 
+###  Connect to the tags DB
+if ( ! file_exists( $SYSTEM_TAGS_DB ) ) $INIT_DB_NOW = true;
 
+###  Get an exclusive File_NFSLock on the DB file...
+#$db_file_lock = new File_NFSLock($SYSTEM_TAGS_DB,LOCK_EX,10,30*60); # stale lock timeout after 30 minutes
 
-#########################
-###  FROM: http://us2.php.net/manual/en/function.str-getcsv.php
-
-###  If your version of PHP doesn't have `str_getcsv` and you don't need custom $escape or $eol values, try this:
-if (!function_exists('str_getcsv')) {
- 
-    function str_getcsv($input, $delimiter=',', $enclosure='"', $escape=null, $eol=null) {
-      $temp=fopen("php://memory", "rw");
-      fwrite($temp, $input);
-      fseek($temp, 0);
-      $r=fgetcsv($temp, 4096, $delimiter, $enclosure);
-      fclose($temp);
-      return $r;
-    }
- 
+$dbh = new PDO('sqlite:'.$SYSTEM_TAGS_DB);  $GLOBALS['orm_dbh'] = $dbh;
+$dbh->setAttribute( PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION );
+if ( ! empty($INIT_DB_NOW) ) {
+    $dbh->exec("CREATE TABLE file_tag (
+                     file      character varying(1000) NOT NULL,
+                     tag       character varying(25) NOT NULL,
+                     revision  int NOT NULL,
+                     CONSTRAINT file_tag_pk PRIMARY KEY ( file, tag )
+                   )
+                  ");
 }
-
 
 
 #########################
@@ -78,88 +65,86 @@ else if ( $_REQUEST['action'] == 'update' ) {
         echo style_sheet();
         view_project_page();
     }
-if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
-    return trigger_error("Please don't hack...", E_USER_ERROR);
+    if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
+        return trigger_error("Please don't hack...", E_USER_ERROR);
+
+
+    $individual_file_rev_updates = array();
 
     ###  Target mode
-    $do_file_tag_update = false;
-    $file_tags;
+    $target_mode_update = false;
     if ( $tag == 'Target' ) {
-        $do_file_tag_update = true;
+        $target_mode_update = true;
         $tag = 'HEAD';
         ###  Read in the file tags CSV
         $file_tags = get_file_tags( $project_name );
     }
 
-    ###  Prepare Update/Checkouts (to Tag, Head or specific revision)
-    $update_cmd =   array_merge( array('update', '-r' ), $tag );
-    $checkout_cmd = array_merge( array('co',     '-r' ), $tag );
+    ###  Prepare for a MASS HEAD update if updating to HEAD
     if ( $tag == 'HEAD' ) {
-        $update_cmd =    array('update', '-PAd' );
-        $checkout_cmd =  array('co',     '-rHEAD' );
+        $mass_head_update_files = array();
+        foreach ( get_affected_files($project_name) as $file ) {
+            if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                 ###  Skip this file if in TARGET MODE and it's on the list
+                 || ( $target_mode_update && array_key_exists( $file, $file_tags) )
+                ) continue;
+            $mass_head_update_files[] = $file;
+        }
+
+        ###  Get Target Mode files
+        if ( $target_mode_update ) {
+            foreach ( get_affected_files($project_name) as $file ) {
+                if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                     ) continue;
+                if ( ! empty( $file_tags[ $file ] ) && abs( floor( $file_tags[ $file ] ) ) == $file_tags[ $file ] ) 
+                    $individual_file_rev_updates[] = array( $file, $file_tags[ $file ] );
+            }
+        }
     }
-    $tag_files = array();
-    list( $do_update, $do_checkout ) = array(false,false);
-    foreach ( get_affected_files($project_name) as $file ) {
-        $parent_dir = preg_replace('@/[^/]+$@','',$file);
-        ###  Remove files with specific tags from the main update
-        if ( $do_file_tag_update && $file_tags[$file] ) {
-            array_push( $tag_files, $file );
-            continue;
+    ###  All other tags, do individual file updates
+    else {
+        foreach ( get_affected_files($project_name) as $file ) {
+            if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                 ) continue;
+
+            ###  Get the tag rev for this file...
+            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+            $rev = $sth->fetch(PDO::FETCH_NUM);
+            if ( ! empty( $rev ) ) # I guess if there isn't a rev, we should REMOVE THE FILE?  Maybe later...
+                $individual_file_rev_updates[] = array( $file, $rev[0] );
         }
-        ###  Do files that don't exist in a "checkout" batch command
-        else if ( ! is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$parent_dir") ) {
-            $my_file = $file;
-            if ( ! preg_match('/^project/', $file, $m) ) $my_file = "project/$file";
-            array_push( $checkout_cmd, '"'. $my_file .'"' );
-            if ( empty($do_checkout) ) $do_checkout = true;
-            continue;
-        }
-        ###  Normal batch update of existing files
-        array_push( $update_cmd, '"'. $file .'"' );
-        if ( empty($do_update) ) $do_update = true;
     }
 
-    ###  Run the UPDATE command (if any)
-    $cmd = '';
-    $command_output = '';
-    if ( $do_update ) {
-        $update_cmd = "$SVN_CMD ". join(' ', $update_cmd);
+    ###  Run the MASS HEAD update (if any)
+    if ( ! empty($mass_head_update_files) ) {
+        $head_update_cmd = "svn update ";
+        foreach ( $mass_head_update_files as $file ) $head_update_cmd .= ' '. escapeshellcmd($file);
         if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        log_svn_action($update_cmd);
-        $command_output .= `$update_cmd 2>&1 | cat -`;
+        log_svn_action($head_update_cmd);
+#        $command_output .= shell_exec("$SVN_CMD_PREFIX_PREFIX$head_update_cmd 2>&1 | cat -");
         if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        $cmd .= "\n".( length($cmd) ? ' ; ' : ''). $update_cmd;
-    }
-
-    ###  Run the CHECKOUT command (if any)
-    if ( $do_checkout ) {
-        $checkout_cmd = "$SVN_CMD ". join(' ', $checkout_cmd);
-        if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        log_svn_action($checkout_cmd);
-        $command_output .= `$checkout_cmd 2>&1 | cat -`;
-        if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        $cmd .= "\n".( length($cmd) ? ' ; ' : ''). $checkout_cmd;
+        $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
     }
 
     ###  File tag update
-    if ( $do_file_tag_update ) {
-        foreach ( $tag_files as $file ) {
-            $tag_cmd = array_merge( array('update', '-r' ), array($file_tags[$file], '"'. $file .'"') );
-            $tag_cmd = "$SVN_CMD ". join(' ', $tag_cmd);
+    if ( ! empty($individual_file_rev_updates) ) {
+        foreach ( $individual_file_rev_updates as $update ) {
+            list($file, $rev) = $update;
+
+            $indiv_update_cmd = "svn update -r$rev ". escapeshellcmd($file);
             if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-            log_svn_action($tag_cmd);
-            $command_output .= "\n--\n". `$tag_cmd 2>&1 | cat -`;
+            log_svn_action($indiv_update_cmd);
+#            $command_output .= shell_exec("$SVN_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
             if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-            $cmd .= ( length($cmd) ? ' ; ' : ''). $tag_cmd;
+            $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
         }
     }
 
     if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-    $bounce_url = "?action=view_project&pid=$$&pname=". urlencode($project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
-    if ( length( $bounce_url ) > 2000 ) {
+    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
+    if ( strlen( $bounce_url ) > 2000 ) {
         echo style_sheet();
         echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
         echo "<xmp>> $cmd\n\n$command_output\n</xmp>\n\n";
@@ -167,7 +152,7 @@ if ( preg_match('/[^\w\_\-\.]/', $tag, $m) )
     }
     ###  Else, just bounce
     else {
-        echo "Location: $bounce_url\n\n";
+        header("Location: $bounce_url");
     }
 }
 else if ( $_REQUEST['action'] == 'tag' ) {
@@ -182,52 +167,50 @@ else if ( $_REQUEST['action'] == 'tag' ) {
     if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
     
-    ###  Prepare Update/Remove_Tags (to Tag, Head or specific revision)
-    $tag_cmd =   array_merge( array('tag', '-F'), array($tag) );
-    $remove_tag_cmd = array_merge( array('tag', '-d'), array($tag) );
-    list( $do_tag, $do_remove_tag ) = array(false,false);
+    ###  Look and update tags
     foreach ( get_affected_files($project_name) as $file ) {
-        $parent_dir = preg_replace('@/[^/]+$@','',$file);
-        ###  Do files that don't exist in a "remove_tag" batch command
-        if ( ! is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$parent_dir") || ! is_file($_SERVER['PROJECT_SVN_BASE'] ."/$file") ) {
-            array_push( $remove_tag_cmd, '"'. $file .'"' );
-            if ( empty($do_remove_tag) ) $do_remove_tag = true;
-            continue;
+        ###  Make sure this file exists
+        if ( file_exists($_SERVER['PROJECT_SVN_BASE'] ."/$file")
+             && ! is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+             && preg_match('/^\w?\s*\d+\s+(\d+)\s/', get_svn_status($file), $m) 
+             ) {
+            $cur_rev = $m[1];
+
+            ###  See what the tag was before...
+            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+            $old_rev = $sth->fetch(PDO::FETCH_NUM);
+            
+            ###  Update the Tag DB for this file...
+            $rv = dbh_do_bind("INSERT OR REPLACE INTO file_tag ( file,tag,revision ) VALUES ( ?,?,?)", $file, $tag, $cur_rev);
+
+            ###  Add to Command output whether we really changed the tag or not
+            if ( ! empty( $old_rev ) && $old_rev[0] != $cur_rev ) {
+                $command_output .= "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
+            }
         }
-        ###  Normal batch tag of existing files
+        ###  If it doesn't exist, we need to remove the tag...
         else {
-            array_push( $tag_cmd, '"'. $file .'"' );
-            if ( empty($do_tag) ) $do_tag = true;
+            ###  See what the tag was before...
+            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+            $old_rev = $sth->fetch(PDO::FETCH_NUM);
+            
+            ###  Update the Tag DB for this file...
+            $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+
+            ###  Add to Command output whether we really changed the tag or not
+            if ( ! empty( $old_rev ) ) {
+                $command_output .= "Rmoved $tag on $file\n";
+            }
         }
     }
 
-    ###  Run the TAG command (if any)
-    $cmd = '';
-    $command_output = '';
-    if ( $do_tag ) {
-        $tag_cmd = "$SVN_CMD ". join(' ', $tag_cmd);
-        if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        log_svn_action($tag_cmd);
-        $command_output .= `$tag_cmd 2>&1 | cat -`;
-        if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        $cmd .= "\n".( length($cmd) ? ' ; ' : ''). $tag_cmd;
-    }
-
-    ###  Run the REMOVE_TAG command (if any)
-    if ( $do_remove_tag ) {
-        $remove_tag_cmd = "$SVN_CMD ". join(' ', $remove_tag_cmd);
-        if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        log_svn_action($remove_tag_cmd);
-        $command_output .= `$remove_tag_cmd 2>&1 | cat -`;
-        if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        $cmd .= "\n".( length($cmd) ? ' ; ' : ''). $remove_tag_cmd;
-    }
+    $cmd = "TAG all files: $tag";
 
     if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-    $bounce_url = "?action=view_project&pid=$$&pname=". urlencode($project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
-    if ( length( $bounce_url ) > 2000 ) {
+    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
+    if ( strlen( $bounce_url ) > 2000 ) {
         echo style_sheet();
         echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
         echo "<xmp>> $cmd\n\n$command_output\n</xmp>\n\n";
@@ -235,7 +218,7 @@ else if ( $_REQUEST['action'] == 'tag' ) {
     }
     ###  Else, just bounce
     else {
-        echo "Location: $bounce_url\n\n";
+        header("Location: $bounce_url");
     }
 }
 else if ( $_REQUEST['action'] == 'part_log' ) {
@@ -297,7 +280,6 @@ function index_page() {
 
     $projects = array();
     foreach ( get_projects() as $project ) {
-        bug($project);
         if ( empty( $project ) ) continue;
 
         ###  Get more info from ls
@@ -370,12 +352,12 @@ ENDHTML;
 <tr>
   <td align="left" valign="top">
     <h3>Actions</h3>
-    Update to: <a href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')\"   >Target</a>
-                 | <a href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=HEAD')\"     >HEAD</a>
-                 | <a href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')\">PROD_TEST</a>
-                 | <a href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_SAFE')\">PROD_SAFE</a>
-    <br>Tag as:    <a href=\"javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_TEST')\"     >PROD_TEST</a>
-                 | <a href=\"javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_SAFE')\"     >PROD_SAFE</a>
+    Update to: <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')"   >Target</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=HEAD')"     >HEAD</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')">PROD_TEST</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_SAFE')">PROD_SAFE</a>
+    <br>Tag as:    <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_TEST')"     >PROD_TEST</a>
+                 | <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_SAFE')"     >PROD_SAFE</a>
   </td>
   <td align="left" valign="top">
 ENDHTML;
@@ -411,11 +393,11 @@ ENDHTML;
         else {
             echo <<<ENDHTML
             <h3>Rollout Process - QA STAGING PHASE</h3>
-            <b>Step 1</b>: Once developer is ready, <a href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')\"   >Update to Target</a><br>
+            <b>Step 1</b>: Once developer is ready, <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')"   >Update to Target</a><br>
             <b>Step 2</b>: <i> -- Perform QA testing -- </i><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2a</b>: For minor updates, <a      href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')\"   >Update to Target again</a><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, <a      href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')\">Roll back to PROD_TEST</a><br>
-            <b>Step 3</b>: When everything checks out, <a href=\"javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_TEST')\"     >Tag as PROD_TEST</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2a</b>: For minor updates, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')"   >Update to Target again</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')">Roll back to PROD_TEST</a><br>
+            <b>Step 3</b>: When everything checks out, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_TEST')"     >Tag as PROD_TEST</a><br>
             <br>
             Then, <a href="https://admin.project.org/project_manager/?action=view_project&pname=$project_name">Switch to Live Production Area</a>
 ENDHTML;
@@ -440,11 +422,11 @@ ENDHTML;
             <h3>Rollout Process - LIVE PRODUCTION PHASE</h3>
             Check that in the "Current Status" column there are <b><u>no <b>"Locally Modified"</b> or <b>"Needs Merge"</b> statuses</u></b>!!
             <br>
-            <b>Step 4</b>: Set set a safe rollback point, <a href=\"javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_SAFE')\"     >Tag as PROD_SAFE</a><br>
-            <b>Step 5</b>: Then to roll it all out, <a      href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')\">Update to PROD_TEST</a><br>
+            <b>Step 4</b>: Set set a safe rollback point, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_SAFE')"     >Tag as PROD_SAFE</a><br>
+            <b>Step 5</b>: Then to roll it all out, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')">Update to PROD_TEST</a><br>
             <b>Step 6</b>: <i> -- Perform QA testing -- </i><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, <a      href=\"javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_SAFE')\">Roll back to PROD_SAFE</a><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, <a href=\"javascript: confirmAction('TAG','?action=tag&pname=$project_name&tag=PROD_TEST')\">Re-tag to PROD_TEST</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_SAFE')">Roll back to PROD_SAFE</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, <a href="javascript: confirmAction('TAG','?action=tag&pname=$project_name&tag=PROD_TEST')">Re-tag to PROD_TEST</a><br>
             Then, go back to the <a href="https://admin.beta.project.org/project_manager/?action=view_project&pname=$project_name">QA Staging Area</a> and continue with <b>Step 1</b> or <b>Step 2</b>.
 ENDHTML;
         }
@@ -497,7 +479,7 @@ ENDHTML;
                 $letter_trans = array( '' => 'Up-to-date', 'M' => 'Locally Modified', 'A' => 'To-be-added' );
                 $status = ( isset( $letter_trans[ $letter ] ) ? $letter_trans[ $letter ] : 'Other: "'. $letter .'"' );
                 if ( preg_match('/^\w?\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
-                    $cur_rev = $m[2];
+                    $cur_rev = $m[1];
                 } else {
                     $cur_vers = "<i>malformed svn status</i><!--$cstat-->";
                 }
@@ -519,8 +501,10 @@ ENDHTML;
         $clog = get_svn_log($file);
 
         ###  Get PROD_SAFE Version
-        if ( preg_match('/^\tPROD_SAFE:\s*(\S+)/m', $clog, $m) ) {
-            $prod_safe_rev = $m[1];
+        $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_SAFE');
+        $row = $sth->fetch(PDO::FETCH_NUM);
+        if ( ! empty( $row ) ) {
+            list( $prod_safe_rev ) = $row;
             if ( $prod_safe_rev != $cur_rev ) {
                 $prod_safe_vers = "<b><font color=red>$prod_safe_rev</font></b>";
             }
@@ -529,8 +513,10 @@ ENDHTML;
         else { $prod_safe_vers = '<i>-- n/a --</i>'; }
 
         ###  Get PROD_TEST Version
-        if ( preg_match('/^\tPROD_TEST:\s*(\S+)/m', $clog, $m) ) {
-            $prod_test_rev = $m[1];
+        $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_TEST');
+        $row = $sth->fetch(PDO::FETCH_NUM);
+        if ( ! empty( $row ) ) {
+            list( $prod_test_rev ) = $row;
             if ( $prod_test_rev != $cur_rev ) {
                 $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
             }
@@ -568,21 +554,21 @@ ENDHTML;
 
         ###  Changes by
         $changes_by = '<i>n/a</i>';
-        $c_by_rev = onLive() ? $cur_rev : $prod_test_rev;
-        if ( $c_by_rev && $target_rev ) {
-            $entries = array();  foreach ( array_reverse( get_revs_in_diff($c_by_rev, $target_rev) ) as $_ ) { $entries[] = get_log_entry( $clog, $_ ); } 
-            $names = array();  foreach ( $entries as $_ ) { preg_match('/author:\s+(\w+);/', $_, $m);  $names[] = $m[0]; } $names = array_unique($names);
-
-            ###  Find regressions!
-            $changes_by = undef;
-            if ( count($entries) == 0 && $c_by_rev != $target_rev ) {
-                $reverse_revs = get_revs_in_diff($target_rev, $c_by_rev);
-                if ( count($reverse_revs) > 0 ) {
-                    $changes_by = '<font color=red><b><i>-'. $reverse_revs .' rev'. (count($reverse_revs) == 1 ? '' : 's'). '!!!</i></b></font>';
-                }
-            }
-            if ( empty($changes_by) ) $changes_by = $entries .' rev'. (count($entries) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
-        }
+#         $c_by_rev = onLive() ? $cur_rev : $prod_test_rev;
+#         if ( $c_by_rev && $target_rev ) {
+#             $entries = array();  foreach ( array_reverse( get_revs_in_diff($c_by_rev, $target_rev) ) as $_ ) { $entries[] = get_log_entry( $clog, $_ ); } 
+#             $names = array();  foreach ( $entries as $_ ) { preg_match('/author:\s+(\w+);/', $_, $m);  $names[] = $m[0]; } $names = array_unique($names);
+# 
+#             ###  Find regressions!
+#             $changes_by = undef;
+#             if ( count($entries) == 0 && $c_by_rev != $target_rev ) {
+#                 $reverse_revs = get_revs_in_diff($target_rev, $c_by_rev);
+#                 if ( count($reverse_revs) > 0 ) {
+#                     $changes_by = '<font color=red><b><i>-'. $reverse_revs .' rev'. (count($reverse_revs) == 1 ? '' : 's'). '!!!</i></b></font>';
+#                 }
+#             }
+#             if ( empty($changes_by) ) $changes_by = $entries .' rev'. (count($entries) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
+#         }
 
         ###  Actions
         $actions = '<i>n/a</i>';
@@ -692,7 +678,7 @@ function full_log_page_preplace_callback($m) {
 }
 
 function diff_page() {
-    global $SVN_CMD;
+    global $SVN_CMD_PREFIX;
 
     $file     = $_REQUEST['file'];
     $from_rev = $_REQUEST['from_rev'];
@@ -705,7 +691,7 @@ function diff_page() {
     ###  Get the partial diff
     $to_rev_clause = ($to_rev == 'local' ? "" : "-r $to_rev");
     if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-    $cdiff = `$SVN_CMD diff -bc -r $from_rev $to_rev_clause "$file" 2>&1 | cat`;
+    $cdiff = `${SVN_CMD_PREFIX}svn diff -bc -r $from_rev $to_rev_clause "$file" 2>&1 | cat`;
     if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
 
     echo "<xmp>\n$cdiff\n</xmp>";
@@ -715,7 +701,7 @@ function diff_page() {
 ###  SVN batch caching (for speed)
 
 function get_svn_log( $file ) {
-    global $SVN_CMD;
+    global $SVN_CMD_PREFIX;
 
     ###  If not cached, get it and cache
     if ( ! $svn_cache['log'][$file] ) {
@@ -741,7 +727,7 @@ HACK_LOG;
             #########################
             #########################
 
-#            $svn_cache['log'][$file] = `$SVN_CMD log -r HEAD:1 "$file" 2>&1 | cat`;
+#            $svn_cache['log'][$file] = `${SVN_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`;
             if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
         }
         else {
@@ -753,7 +739,7 @@ HACK_LOG;
 }
 
 function cache_svn_logs( $files ) {
-    global $SVN_CMD;
+    global $SVN_CMD_PREFIX;
 
     $cache_key = 'log';
 
@@ -761,7 +747,7 @@ function cache_svn_logs( $files ) {
     while ( count($files) > 0 ) {
         $round = array();
         $round_str = '';
-        while ( $files && $round < $MAX_BATCH_SIZE && length($round_str) < $MAX_BATCH_STRING_SIZE ) {
+        while ( $files && $round < $MAX_BATCH_SIZE && strlen($round_str) < $MAX_BATCH_STRING_SIZE ) {
             $file = array_shift( $files );
 
             ###  Skip ones whos parent dir ! exists
@@ -774,7 +760,7 @@ function cache_svn_logs( $files ) {
 
         $round_checkoff = array_flip($round);
         if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        $all_entries = `$SVN_CMD log $round_str 2>&1 | cat`;
+        $all_entries = `${SVN_CMD_PREFIX}svn log $round_str 2>&1 | cat`;
 #        bug substr($all_entries, -200);
         if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
         foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
@@ -804,14 +790,14 @@ function cache_svn_logs( $files ) {
 }
 
 function get_svn_status( $file ) {
-    global $SVN_CMD;
+    global $SVN_CMD_PREFIX;
 
     ###  If not cached, get it and cache
     if ( ! $svn_cache['status'][$file] ) {
         $parent_dir = preg_replace('@/[^/]+$@','',$file);
         if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$parent_dir") ) {
             if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-            $svn_cache['status'][$file] = `$SVN_CMD -v status "$file" 2>&1 | cat`;
+            $svn_cache['status'][$file] = `${SVN_CMD_PREFIX}svn -v status "$file" 2>&1 | cat`;
             if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
         }
         else {
@@ -823,7 +809,7 @@ function get_svn_status( $file ) {
 }
 
 function cache_svn_statuses( $files ) {
-    global $SVN_CMD;
+    global $SVN_CMD_PREFIX;
 
     $cache_key = 'status';
 
@@ -831,7 +817,7 @@ function cache_svn_statuses( $files ) {
     while ( count($files) > 0 ) {
         $round = array();
         $round_str = '';
-        while ( $files && $round < $MAX_BATCH_SIZE && length($round_str) < $MAX_BATCH_STRING_SIZE ) {
+        while ( $files && $round < $MAX_BATCH_SIZE && strlen($round_str) < $MAX_BATCH_STRING_SIZE ) {
             $file = array_shift( $files );
 
             ###  Skip ones whos parent dir ! exists
@@ -844,7 +830,7 @@ function cache_svn_statuses( $files ) {
 
         $round_checkoff = array_flip( $round );
         if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        $all_entries = `$SVN_CMD status $round_str 2>&1 | cat`;
+        $all_entries = `${SVN_CMD_PREFIX}svn status $round_str 2>&1 | cat`;
 #        bug substr($all_entries, -200);
         if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
         foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
@@ -927,10 +913,10 @@ function get_project_file($project, $file) {
 }
 
 function get_projects() {
-    global $SYSTEM_PROJECT_BASE;
+    global $SYSTEM_PROJECT_BASE, $PROJECTS_DIR_IGNORE_REGEXP;
     $tmp = func_get_args();
     if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, $tmp );
-    return explode("\n",`ls -1 $SYSTEM_PROJECT_BASE | grep -E -v '^(archive|logs)\$'`);
+    return explode("\n",`ls -1 $SYSTEM_PROJECT_BASE | grep -E -v '^(archive|logs|$PROJECTS_DIR_IGNORE_REGEXP)\$'`);
 }
 
 function call_remote($sub, $params) {
@@ -976,8 +962,9 @@ function call_remote($sub, $params) {
 ###  Utility functions
 
 function log_svn_action( $command ) {
+    global $PROJECT_SAFE_BASE;
 
-    $log_line = join_delim_line(',', array(time(), get_pid(), date(DATE_RFC822,localtime()), $command), '"'). "\n";
+    $log_line = join(',', array(time(), getmypid(), date(DATE_RFC822,time()), $command)). "\n";
 
     $file = "$PROJECT_SAFE_BASE/project_svn_log_".$env_mode.".csv";
     file_put_contents($file, $log_line, FILE_APPEND);
@@ -1108,11 +1095,11 @@ var disable_actions = 0;
 function confirmAction(which,newLocation) {
     //  If locally modified files, diabled actions
     if ( disable_actions ) {
-        alert("Some of the below files are locally modified, or have conflicts.  SVN update actions would possibly conflict the file leaving code files in a broken state.  Please resolve these differences manually (command line) before continuing.\n\nActions are currently DISABLED.");
+        alert("Some of the below files are locally modified, or have conflicts.  SVN update actions would possibly conflict the file leaving code files in a broken state.  Please resolve these differences manually (command line) before continuing.\\n\\nActions are currently DISABLED.");
         return void(null);
     }
 
-    var confirmed = confirm("Please confirm this action.\n\nAre you sure you want to "+which+" these files?");
+    var confirmed = confirm("Please confirm this action.\\n\\nAre you sure you want to "+which+" these files?");
     if (confirmed) { location.href = newLocation }
 }
 </script>
