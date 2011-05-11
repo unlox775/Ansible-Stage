@@ -5,17 +5,48 @@
 
 define( 'PROJECT_PROJECT_TIMERS', false);
 
+$MAX_BATCH_SIZE = 500;
+$MAX_BATCH_STRING_SIZE = 4096;
+
 ###  Directory Locations
 $SYSTEM_PROJECT_BASE = '/export/example/projects';
 $PROJECT_SAFE_BASE = '/export/example/projects/logs';
 $SYSTEM_TAGS_DB = $SYSTEM_PROJECT_BASE. '/tags_db.sq3';
 $PROJECTS_DIR_IGNORE_REGEXP = 'tags_db.sq3|tags_db.sq3.NFSLock'; # note, this is POSIX egrep-style
-$_SERVER['PROJECT_SVN_BASE'] = realpath( dirname(__FILE__) .'/../../'); # Just get it from our relative location
+
+$OBSCURE_SANDBOX_ROOT = false;
+
+///  Set SVN base by PATH INFO
+$SVN_BASE_BY_STAGE
+= array( 'live' => '/var/www/vhosts/ansible-demo.joesvolcano.net',
+         'beta' => '/var/www/vhosts/beta',
+         'dave' => '/var/www/vhosts/dave',
+         'jon'  => '/var/www/vhosts/jon'
+         );
+if ( ! empty( $_SERVER['PATH_INFO'] ) && preg_match('@/([\w\-]+)/?$@', $_SERVER['PATH_INFO'], $m)
+     && isset( $SVN_BASE_BY_STAGE[ $m[1] ] )
+     ) {
+    $SYSTEM_STAGE = $m[1];
+    $env_mode = ( ( $SYSTEM_STAGE == 'live' || $SYSTEM_STAGE == 'beta')
+                  ? $SYSTEM_STAGE
+                  : 'alpha'
+                  );
+
+    ///  Set the PROJECT_SVN_BASE
+    $_SERVER['PROJECT_SVN_BASE'] = $SVN_BASE_BY_STAGE[ $m[1] ];
+}
+
+# ///  Or Hard-code SVN Base for this Instance
+# $_SERVER['PROJECT_SVN_BASE'] = realpath( dirname(__FILE__) .'/../../'); # Just get it from our relative location
+
+///  Define a custom path to SVN
+$SVN_CMD_PREFIX =     'cd ' .$_SERVER['PROJECT_SVN_BASE']. ';      /usr/bin/';
+
 
 ###  Determining which environment we are on...
-function onAlpha() { return    preg_match('/dev/',  $_SERVER['HTTP_HOST']) ? true : false; }
-function onBeta()  { return    preg_match('/beta/', $_SERVER['HTTP_HOST']) ? true : false; }
-function onLive()  { return ( ! onAlpha() && ! onBeta() ) ? true : false; }
+function onAlpha() { return ( ! onLive() && ! onBeta() ) ? true : false; }
+function onBeta()  { return $GLOBALS['SYSTEM_STAGE'] == 'beta' ? true : false; }
+function onLive()  { return $GLOBALS['SYSTEM_STAGE'] == 'live' ? true : false; }
 
 ######  Sandbox Configuration
 ###  Staging Areas
@@ -23,23 +54,25 @@ $QA_ROLLOUT_PHASE_HOST   = '';
 $PROD_ROLLOUT_PHASE_HOST = '';
 $URL_BASE = '';
 $PROJECT_STAGING_AREAS =
-    array( array( 'label' => 'QA Staging Area',
-                  'host'  => 'beta.admin.example.com',
+    array( array( 'role' => 'beta', // Will be used for the process link
+                  'label' => 'QA Staging Area',
+                  'path_info'  => '/beta/',
                   'test_by_func' => 'onBeta',
                   ),
-           array( 'label' => 'Live Production',
-                  'host'  => 'admin.example.com',
+           array( 'role' => 'live', // Will be used for the process link
+                  'label' => 'Live Production',
+                  'path_info'  => '/live/',
                   'test_by_func' => 'onLive',
                   ),
            );
 $PROJECT_SANDBOX_AREAS =
-    array( array( 'label' => 'Tom',
-                  'host'  => 'tom.dev.admin.example.com',
-                  'test_uri_regex' => '/(^|\.)tom\./',
+    array( array( 'label' => 'Dave',
+                  'path_info'  => '/dave/',
+                  'test_uri_regex' => '@/dave/@',
                   ),
-           array( 'label' => 'Dave',
-                  'host'  => 'dave.dev.admin.example.com',
-                  'test_uri_regex' => '/(^|\.)dave\./',
+           array( 'label' => 'Jon',
+                  'path_info'  => '/jon/',
+                  'test_uri_regex' => '@/jon/@',
                   ),
            );
 
