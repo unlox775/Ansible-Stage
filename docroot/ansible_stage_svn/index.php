@@ -10,19 +10,22 @@
 #########################
 ###  Configuration, Setup
 
-require_once(dirname(__FILE__) .'/config.php');
-require_once(dirname(__FILE__) .'/debug.inc.php');
-require_once(dirname(__FILE__) .'/File_NFSLock.class.php');
+require_once(dirname(__FILE__) .'/lib/config.php');
+require_once(dirname(__FILE__) .'/lib/debug.inc.php');
+require_once(dirname(__FILE__) .'/lib/File_NFSLock.class.php');
+require_once(dirname(__FILE__) .'/lib/Repo.class.php');
+require_once(dirname(__FILE__) .'/lib/Project.class.php');
+require_once(dirname(__FILE__) .'/'. $ANSIBLE_REPO_FILE);
 
-#$cmd = $SVN_CMD_PREFIX.'svn log index.php';
+#$cmd = $REPO_CMD_PREFIX.'svn log index.php';
 #bug( `$cmd` );
 #exit;
 
 
 # phpinfo(); exit;
 
-###  Globals
-$svn_cache = array();
+$delayed_load_id = 1;
+$delayed_load_calls = array();
 
 ###  Connect to the tags DB
 if ( ! file_exists( $SYSTEM_TAGS_DB ) ) $INIT_DB_NOW = true;
@@ -46,6 +49,9 @@ if ( ! empty($INIT_DB_NOW) ) {
 #########################
 ###  Main Runtime
 
+###  Get Repo
+$repo = new $ANSIBLE_REPO_CLASS ();
+
 ###  See if we are doing a read-only user
 $READ_ONLY_MODE = ( in_array( $_SERVER['REMOTE_USER'], array('guest', 'pmgr_tunnel') ) ) ? true : false;
 if ( PROJECT_PROJECT_TIMERS ) 
@@ -59,92 +65,20 @@ if ( ! empty( $_REQUEST['action'] ) && $_REQUEST['action'] == 'view_project' ) {
 else if ( $_REQUEST['action'] == 'update' ) {
     if ( $READ_ONLY_MODE ) return trigger_error("Permission Denied", E_USER_ERROR);
 
-    $project_name = $_REQUEST['pname'];
+    $project = new Ansible__Project( $_REQUEST['pname'] );
     $tag = $_REQUEST['tag'];
-    if ( empty( $tag ) ) {
+    if ( empty( $tag ) || ! $project->exists() ) {
         echo style_sheet();
         view_project_page();
     }
     if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
 
-
-    $individual_file_rev_updates = array();
-
-    ###  Target mode
-    $target_mode_update = false;
-    if ( $tag == 'Target' ) {
-        $target_mode_update = true;
-        $tag = 'HEAD';
-        ###  Read in the file tags CSV
-        $file_tags = get_file_tags( $project_name );
-    }
-
-    ###  Prepare for a MASS HEAD update if updating to HEAD
-    if ( $tag == 'HEAD' ) {
-        $mass_head_update_files = array();
-        foreach ( get_affected_files($project_name) as $file ) {
-            if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                 ###  Skip this file if in TARGET MODE and it's on the list
-                 || ( $target_mode_update && array_key_exists( $file, $file_tags) )
-                ) continue;
-            $mass_head_update_files[] = $file;
-        }
-
-        ###  Get Target Mode files
-        if ( $target_mode_update ) {
-            foreach ( get_affected_files($project_name) as $file ) {
-                if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                     ) continue;
-                if ( ! empty( $file_tags[ $file ] ) && abs( floor( $file_tags[ $file ] ) ) == $file_tags[ $file ] ) 
-                    $individual_file_rev_updates[] = array( $file, $file_tags[ $file ] );
-            }
-        }
-    }
-    ###  All other tags, do individual file updates
-    else {
-        foreach ( get_affected_files($project_name) as $file ) {
-            if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                 ) continue;
-
-            ###  Get the tag rev for this file...
-            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-            $rev = $sth->fetch(PDO::FETCH_NUM);
-            $sth->closeCursor();
-            if ( ! empty( $rev ) ) # I guess if there isn't a rev, we should REMOVE THE FILE?  Maybe later...
-                $individual_file_rev_updates[] = array( $file, $rev[0] );
-        }
-    }
-
-    ###  Run the MASS HEAD update (if any)
-    if ( ! empty($mass_head_update_files) ) {
-        $head_update_cmd = "svn update ";
-        foreach ( $mass_head_update_files as $file ) $head_update_cmd .= ' '. escapeshellcmd($file);
-        if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        log_svn_action($head_update_cmd);
-        $command_output .= shell_exec("$SVN_CMD_PREFIX$head_update_cmd 2>&1 | cat -");
-        if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
-    }
-
-    ###  File tag update
-    if ( ! empty($individual_file_rev_updates) ) {
-        foreach ( $individual_file_rev_updates as $update ) {
-            list($file, $rev) = $update;
-
-            $indiv_update_cmd = "svn update -r$rev ". escapeshellcmd($file);
-            if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-            log_svn_action($indiv_update_cmd);
-            $command_output .= shell_exec("$SVN_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
-            if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-            $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
-        }
-    }
-
-    if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
+    ///  Run the action
+    list( $cmd, $command_output ) = $repo->updateAction( $project, $tag );
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
+    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
     if ( strlen( $bounce_url ) > 2000 ) {
         echo style_sheet();
         echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
@@ -160,7 +94,7 @@ else if ( $_REQUEST['action'] == 'update' ) {
 else if ( $_REQUEST['action'] == 'tag' ) {
     if ( $READ_ONLY_MODE ) return trigger_error("Permission Denied", E_USER_ERROR);
 
-    $project_name = $_REQUEST['pname'];
+    $project = new Ansible__Project( $_REQUEST['pname'] );
     $tag = $_REQUEST['tag'];
     if ( empty( $tag ) ) {
         echo style_sheet();
@@ -169,52 +103,11 @@ else if ( $_REQUEST['action'] == 'tag' ) {
     if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
     
-    ###  Look and update tags
-    foreach ( get_affected_files($project_name) as $file ) {
-        ###  Make sure this file exists
-        if ( file_exists($_SERVER['PROJECT_SVN_BASE'] ."/$file")
-             && ! is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-             && preg_match('/^\w?\s*\d+\s+(\d+)\s/', get_svn_status($file), $m) 
-             ) {
-            $cur_rev = $m[1];
-
-            ###  See what the tag was before...
-            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-            $old_rev = $sth->fetch(PDO::FETCH_NUM);
-            $sth->closeCursor();
-            
-            ###  Update the Tag DB for this file...
-            $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-            $rv = dbh_do_bind("INSERT INTO file_tag ( file,tag,revision ) VALUES (?,?,?)", $file, $tag, $cur_rev);
-
-            ###  Add to Command output whether we really changed the tag or not
-            if ( ! empty( $old_rev ) && $old_rev[0] != $cur_rev ) {
-                $command_output .= "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
-            }
-        }
-        ###  If it doesn't exist, we need to remove the tag...
-        else {
-            ###  See what the tag was before...
-            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-            $old_rev = $sth->fetch(PDO::FETCH_NUM);
-            $sth->closeCursor();
-            
-            ###  Update the Tag DB for this file...
-            $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-
-            ###  Add to Command output whether we really changed the tag or not
-            if ( ! empty( $old_rev ) ) {
-                $command_output .= "Rmoved $tag on $file\n";
-            }
-        }
-    }
-
-    $cmd = "TAG all files: $tag";
-
-    if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
+    ///  Run the action
+    list( $cmd, $command_output ) = $repo->tagAction( $project, $tag );
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
+    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
     if ( strlen( $bounce_url ) > 2000 ) {
         echo style_sheet();
         echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
@@ -260,7 +153,7 @@ else {
 }
 if ( PROJECT_PROJECT_TIMERS ) 
 report_timers(  );
-
+run_delayed_load();
 # exit 0;
 
 
@@ -269,7 +162,7 @@ report_timers(  );
 ###  Hacked Page handlers (use Template Toolkit asap!)
 
 function index_page() {
-    global $SYSTEM_PROJECT_BASE;
+    global $SYSTEM_PROJECT_BASE, $repo;
 
     ###  List of projects
     echo "<h3>List of Projects</h3>\n";
@@ -285,27 +178,29 @@ function index_page() {
             );
 
     $projects = array();
-    foreach ( get_projects() as $project ) {
-        if ( empty( $project ) ) continue;
+    foreach ( get_projects() as $project_name ) {
+        if ( empty( $project_name ) ) continue;
+
+        $project = new Ansible__Project( $project_name );
 
         ###  Get more info from ls
-        $ls = ( is_dir($SYSTEM_PROJECT_BASE)) ? (preg_split('/\s+/', get_project_ls($project)) ) : array();
-#        $stat = (is_dir($SYSTEM_PROJECT_BASE)) ? (get_project_stat($project)) : ();
-        $stat = get_project_stat($project);
+        $ls = ( is_dir($SYSTEM_PROJECT_BASE)) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
+#        $stat = (is_dir($SYSTEM_PROJECT_BASE)) ? ($project->get_stat()) : ();
+        $stat = $project->get_stat();
 
-        $project = array( 'name'                => $project,
-                          'creator'             => ($ls[2] || '-'),
-                          'group'               => ($ls[3] || '-'),
-                          'mod_time'            => ($stat[9] || 0),
-                          'mod_time_display'    => ($stat ? date('n/j/y',$stat[9])  : '-'),
-                          'has_summary'         => ( (is_dir($SYSTEM_PROJECT_BASE))
-                                                     ? ( project_file_exists( $project, "summary.txt" ) ? "YES" : "")
-                                                     : '-'
-                                                     ),
-                          'aff_file_count'      => count(get_affected_files($project)),
-                          );
-
-        array_push( $projects, $project );
+        $project_info = array( 'name'                => $project_name,
+                               'creator'             => ($ls[2] || '-'),
+                               'group'               => ($ls[3] || '-'),
+                               'mod_time'            => ($stat[9] || 0),
+                               'mod_time_display'    => ($stat ? date('n/j/y',$stat[9])  : '-'),
+                               'has_summary'         => ( (is_dir($SYSTEM_PROJECT_BASE))
+                                                          ? ( $project->file_exists( "summary.txt" ) ? "YES" : "")
+                                                          : '-'
+                                                          ),
+                               'aff_file_count'      => count($project->get_affected_files()),
+                               );
+        
+        array_push( $projects, $project_info );
     }
 
     # sort {$b['mod_time'] cmp $a['mod_time']} 
@@ -327,18 +222,20 @@ function index_page() {
 }
 
 function view_project_page() {
+    global $repo;
+
     list( $cmd, $command_output ) = array( $_REQUEST['cmd'], $_REQUEST['command_output'] );
-    $project_name = $_REQUEST['pname'];
+    $project = new Ansible__Project( $_REQUEST['pname'] );
 
     ###  Command output
     if ( ! empty( $cmd ) ) {
         echo "<font color=red><h3>Command Output</h3>\n";
         echo "<xmp>> $cmd\n\n$command_output\n</xmp>\n\n";
         echo "</font>\n\n";
-        echo "<br><br><a href=\"?action=view_project&pname=$project_name\" style=\"font-size:70%\">&lt;&lt;&lt; Click here to hide Command output &gt;&gt;&gt;</a><br>\n\n";
+        echo "<br><br><a href=\"?action=view_project&pname=$project->project_name\" style=\"font-size:70%\">&lt;&lt;&lt; Click here to hide Command output &gt;&gt;&gt;</a><br>\n\n";
     }
 
-    echo "<h2>Project: $project_name</h2>\n\n";
+    echo "<h2>Project: $project->project_name</h2>\n\n";
 
     ###  Actions
     if ( $READ_ONLY_MODE ) {
@@ -347,7 +244,7 @@ function view_project_page() {
 <tr>
   <td align="left" valign="top">
     <h3>Actions</h3>
-    <i>You must log in as a privileged user to perform SVN actions.  Sorry.</i>
+    <i>You must log in as a privileged user to perform $repo->display_name actions.  Sorry.</i>
   </td>
   <td align="left" valign="top">
 ENDHTML;
@@ -358,12 +255,12 @@ ENDHTML;
 <tr>
   <td align="left" valign="top">
     <h3>Actions</h3>
-    Update to: <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')"   >Target</a>
-                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=HEAD')"     >HEAD</a>
-                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')">PROD_TEST</a>
-                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_SAFE')">PROD_SAFE</a>
-    <br>Tag as:    <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_TEST')"     >PROD_TEST</a>
-                 | <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_SAFE')"     >PROD_SAFE</a>
+    Update to: <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=Target')"   >Target</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=HEAD')"     >HEAD</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_TEST')">PROD_TEST</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_SAFE')">PROD_SAFE</a>
+    <br>Tag as:    <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_TEST')"     >PROD_TEST</a>
+                 | <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_SAFE')"     >PROD_SAFE</a>
   </td>
   <td align="left" valign="top">
 ENDHTML;
@@ -402,11 +299,11 @@ ENDHTML;
             $live_area_url = get_area_url('live');
             echo <<<ENDHTML
             <h3>Rollout Process - QA STAGING PHASE</h3>
-            <b>Step 1</b>: Once developer is ready, <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')"   >Update to Target</a><br>
+            <b>Step 1</b>: Once developer is ready, <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=Target')"   >Update to Target</a><br>
             <b>Step 2</b>: <i> -- Perform QA testing -- </i><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2a</b>: For minor updates, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=Target')"   >Update to Target again</a><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')">Roll back to PROD_TEST</a><br>
-            <b>Step 3</b>: When everything checks out, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_TEST')"     >Tag as PROD_TEST</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2a</b>: For minor updates, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=Target')"   >Update to Target again</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_TEST')">Roll back to PROD_TEST</a><br>
+            <b>Step 3</b>: When everything checks out, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_TEST')"     >Tag as PROD_TEST</a><br>
             <br>
             Then, <a href="$live_area_url">Switch to Live Production Area</a>
 ENDHTML;
@@ -433,11 +330,11 @@ ENDHTML;
             <h3>Rollout Process - LIVE PRODUCTION PHASE</h3>
             Check that in the "Current Status" column there are <b><u>no <b>"Locally Modified"</b> or <b>"Needs Merge"</b> statuses</u></b>!!
             <br>
-            <b>Step 4</b>: Set set a safe rollback point, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project_name&tag=PROD_SAFE')"     >Tag as PROD_SAFE</a><br>
-            <b>Step 5</b>: Then to roll it all out, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_TEST')">Update to PROD_TEST</a><br>
+            <b>Step 4</b>: Set set a safe rollback point, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_SAFE')"     >Tag as PROD_SAFE</a><br>
+            <b>Step 5</b>: Then to roll it all out, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_TEST')">Update to PROD_TEST</a><br>
             <b>Step 6</b>: <i> -- Perform QA testing -- </i><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project_name&tag=PROD_SAFE')">Roll back to PROD_SAFE</a><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, <a href="javascript: confirmAction('TAG','?action=tag&pname=$project_name&tag=PROD_TEST')">Re-tag to PROD_TEST</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_SAFE')">Roll back to PROD_SAFE</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, <a href="javascript: confirmAction('TAG','?action=tag&pname=$project->project_name&tag=PROD_TEST')">Re-tag to PROD_TEST</a><br>
             Then, go back to the <a href="$beta_area_url">QA Staging Area</a> and continue with <b>Step 1</b> or <b>Step 2</b>.
 ENDHTML;
         }
@@ -450,7 +347,7 @@ ENDHTML;
 ENDHTML;
 
     ###  Read in the file tags CSV "
-    $file_tags = get_file_tags( $project_name );
+    $file_tags = $project->get_file_tags();
 
     ###  Echo File details
     ###    Hack for now... When we rewrite, use open!!
@@ -468,9 +365,9 @@ ENDHTML;
             . "<td align=left><b>Action</b></td>"
             . "</tr>\n"
             );
-    $files = get_affected_files($project_name);
-#    cache_svn_logs( $files );
-#    cache_svn_statuses( $files );
+    $files = $project->get_affected_files();
+#    $repo->cache_logs( $files );
+#    $repo->cache_statuses( $files );
     $locally_modified = false;
     foreach ( $files as $file ) {
 
@@ -478,109 +375,149 @@ ENDHTML;
         $target_vers = '->';
 
         ###  Get Current Version
-        if ( ! file_exists($_SERVER['PROJECT_SVN_BASE'] ."/$file") ) {
-            $cur_vers = '<i>-- n/a --</i>';
-        } else if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$file") ) {
-            $cur_vers = '<i>Directory</i>';
-        } else {
-            $cstat = get_svn_status($file);
-            if ( preg_match('/^(\w?)\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
-                $letter = $m[1];
-                if ( empty($letter) ) $letter = '';
-                $letter_trans = array( '' => 'Up-to-date', 'M' => 'Locally Modified', 'A' => 'To-be-added' );
-                $status = ( isset( $letter_trans[ $letter ] ) ? $letter_trans[ $letter ] : 'Other: "'. $letter .'"' );
-                if ( preg_match('/^\w?\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
-                    $cur_rev = $m[1];
-                } else {
-                    $cur_vers = "<i>malformed svn status</i><!--$cstat-->";
-                }
-
-                ###  Add a diff link if Locally Modified
-                if ( $status == 'Locally Modified'
-                     || $status == 'Needs Merge'
-                     || $status == 'File had conflicts on merge'
-                   ) {
-                    $cur_vers = "<a href=\"?action=diff&from_rev=$cur_rev&to_rev=local&file=". urlencode($file) ."\">$status</a>, $cur_rev";
-                    $locally_modified = true;
-                }
-                else { $cur_vers = "$status, $cur_rev"; }
+        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+            global $repo;
+            if ( ! file_exists($_SERVER['PROJECT_REPO_BASE'] ."/$file") ) {
+                $cur_vers = '<i>-- n/a --</i>';
+            } else if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") ) {
+                $cur_vers = '<i>Directory</i>';
             } else {
-                $cur_vers = "<i>exists, but not in SVN!</i><!--$cstat-->";
+                $cstat = $repo->get_status($file);
+                if ( preg_match('/^(\w?)\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
+                    $letter = $m[1];
+                    if ( empty($letter) ) $letter = '';
+                    $letter_trans = array( '' => 'Up-to-date', 'M' => 'Locally Modified', 'A' => 'To-be-added' );
+                    $status = ( isset( $letter_trans[ $letter ] ) ? $letter_trans[ $letter ] : 'Other: "'. $letter .'"' );
+                    if ( preg_match('/^\w?\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
+                        $cur_rev = $m[1];
+                    } else {
+                        $cur_vers = "<i>malformed $repo->command_name status</i><!--$cstat-->";
+                    }
+            
+                    ###  Add a diff link if Locally Modified
+                    if ( $status == 'Locally Modified'
+                         || $status == 'Needs Merge'
+                         || $status == 'File had conflicts on merge'
+                       ) {
+                        $cur_vers = "<a href=\"?action=diff&from_rev=$cur_rev&to_rev=local&file=". urlencode($file) ."\">$status</a>, $cur_rev";
+                        $locally_modified = true;
+                    }
+                    else { $cur_vers = "$status, $cur_rev"; }
+                } else {
+                    $cur_vers = "<i>exists, but not in $repo->display_name!</i><!--$cstat-->";
+                }
             }
-        }
-
-        $clog = get_svn_log($file);
+            return $cur_vers;
+DELAY
+*/
+));
 
         ###  Get PROD_SAFE Version
-        $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_SAFE');
-        $row = $sth->fetch(PDO::FETCH_NUM);
-        $sth->closeCursor();
-        if ( ! empty( $row ) ) {
-            list( $prod_safe_rev ) = $row;
-            if ( $prod_safe_rev != $cur_rev ) {
-                $prod_safe_vers = "<b><font color=red>$prod_safe_rev</font></b>";
+        $prod_safe_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+            global $repo;
+            $clog = $repo->get_log($file);
+
+            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_SAFE');
+            $row = $sth->fetch(PDO::FETCH_NUM);
+            $sth->closeCursor();
+            if ( ! empty( $row ) ) {
+                list( $prod_safe_rev ) = $row;
+                if ( $prod_safe_rev != $cur_rev ) {
+                    $prod_safe_vers = "<b><font color=red>$prod_safe_rev</font></b>";
+                }
+                else { $prod_safe_vers = $prod_safe_rev; }
             }
-            else { $prod_safe_vers = $prod_safe_rev; }
-        }
-        else { $prod_safe_vers = '<i>-- n/a --</i>'; }
+            else { $prod_safe_vers = '<i>-- n/a --</i>'; }
+
+            return $prod_safe_vers;
+DELAY
+*/
+));
 
         ###  Get PROD_TEST Version
-        $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_TEST');
-        $row = $sth->fetch(PDO::FETCH_NUM);
-        $sth->closeCursor();
-        if ( ! empty( $row ) ) {
-            list( $prod_test_rev ) = $row;
-            if ( $prod_test_rev != $cur_rev ) {
-                $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
+        $prod_test_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+            global $repo;
+            $clog = $repo->get_log($file);
+
+            $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_TEST');
+            $row = $sth->fetch(PDO::FETCH_NUM);
+            $sth->closeCursor();
+            if ( ! empty( $row ) ) {
+                list( $prod_test_rev ) = $row;
+                if ( $prod_test_rev != $cur_rev ) {
+                    $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
+                }
+                else { $prod_test_vers = $prod_test_rev; }
             }
-            else { $prod_test_vers = $prod_test_rev; }
-        }
-        else { $prod_test_vers = '<i>-- n/a --</i>'; }
+            else { $prod_test_vers = '<i>-- n/a --</i>'; }
+
+            return $prod_test_vers;
+DELAY
+*/
+));
 
         ###  Get HEAD Version
-        if ( preg_match('/^-------+\nr(\d+)\s/m', $clog, $m) ) {
-            $head_rev = $m[1];
-            if ( $head_rev != $cur_rev
-                 && ( ! $file_tags[$file]
-                      || $file_tags[$file] == $cur_rev
-                      )
-                 ) {
-                $head_vers = "<b><font color=red>$head_rev</font></b>";
-            }
-            else { $head_vers = $head_rev; }
-            
-            ###  Set Target version if it's there
-            if ( $file_tags[$file] ) {
-                if ( $file_tags[$file] != $cur_rev ) {
-                    $target_vers = "<b><font color=red>". $file_tags[$file] ."</font></b>";
+        $head_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+            global $repo;
+            $clog = $repo->get_log($file);
+
+            if ( preg_match('/^-------+\nr(\d+)\s/m', $clog, $m) ) {
+                $head_rev = $m[1];
+                if ( $head_rev != $cur_rev
+                     && ( ! $file_tags[$file]
+                          || $file_tags[$file] == $cur_rev
+                          )
+                     ) {
+                    $head_vers = "<b><font color=red>$head_rev</font></b>";
                 }
-                else { $target_vers = $file_tags[$file]; }
+                else { $head_vers = $head_rev; }
                 
-                $target_rev = $file_tags[$file];
+                ###  Set Target version if it's there
+                if ( $file_tags[$file] ) {
+                    if ( $file_tags[$file] != $cur_rev ) {
+                        $target_vers = "<b><font color=red>". $file_tags[$file] ."</font></b>";
+                    }
+                    else { $target_vers = $file_tags[$file]; }
+                    
+                    $target_rev = $file_tags[$file];
+                }
+                else { $target_rev = $head_rev; }
+            } else if ( preg_match('/nothing known about|no such directory/', $clog, $m) ) {
+                $head_vers = "<i>Not in $repo->display_name</i><!--$clog-->";
+            } else {
+                $head_vers = "<i>malformed $repo->command_name log</i><!--$clog-->";
             }
-            else { $target_rev = $head_rev; }
-        } else if ( preg_match('/nothing known about|no such directory/', $clog, $m) ) {
-            $head_vers = "<i>Not in SVN</i><!--$clog-->";
-        } else {
-            $head_vers = "<i>malformed svn log</i><!--$clog-->";
-        }
+
+            return $head_vers;
+DELAY
+*/
+));
 
         ###  Changes by
-        $c_by_rev = onLive() ? $cur_rev : $prod_test_rev;
-        if ( $c_by_rev && $target_rev ) {
-            $entries = array();  foreach ( array_reverse( get_revs_in_diff($c_by_rev, $target_rev) ) as $_ ) { $entries[] = get_log_entry( $clog, $_ ); } 
-            $names = array();  foreach ( $entries as $_ ) { preg_match('/^r\d+\s*\|\s*([^\|]+)\s*\|\s*\d{4}/m', $_, $m);  $names[] = $m[1]; } $names = array_unique($names);
+        $changes_by = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+            global $repo;
+            $clog = $repo->get_log($file);
 
-            ###  Find regressions!
-            $changes_by = null;
-            if ( count($entries) == 0 && $c_by_rev != $target_rev ) {
-                $reverse_revs = get_revs_in_diff($target_rev, $c_by_rev);
-                if ( count($reverse_revs) > 0 ) {
-                    $changes_by = '<font color=red><b><i>-'. count( $reverse_revs ) .' rev'. (count($reverse_revs) == 1 ? '' : 's'). '!!!</i></b></font>';
+            $c_by_rev = onLive() ? $cur_rev : $prod_test_rev;
+            if ( $c_by_rev && $target_rev ) {
+                $entries = array();  foreach ( array_reverse( $repo->get_revs_in_diff($c_by_rev, $target_rev) ) as $_ ) { $entries[] = $repo->get_log_entry( $clog, $_ ); } 
+                $names = array();  foreach ( $entries as $_ ) { preg_match('/^r\d+\s*\|\s*([^\|]+)\s*\|\s*\d{4}/m', $_, $m);  $names[] = $m[1]; } $names = array_unique($names);
+    
+                ###  Find regressions!
+                $changes_by = null;
+                if ( count($entries) == 0 && $c_by_rev != $target_rev ) {
+                    $reverse_revs = $repo->get_revs_in_diff($target_rev, $c_by_rev);
+                    if ( count($reverse_revs) > 0 ) {
+                        $changes_by = '<font color=red><b><i>-'. count( $reverse_revs ) .' rev'. (count($reverse_revs) == 1 ? '' : 's'). '!!!</i></b></font>';
+                    }
                 }
+                if ( empty($changes_by) ) $changes_by = count( $entries ) .' rev'. (count($entries) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
             }
-            if ( empty($changes_by) ) $changes_by = count( $entries ) .' rev'. (count($entries) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
-        }
+
+            return $changes_by;
+DELAY
+*/
+));
 
         ###  Actions
         $actions = '<i>n/a</i>';
@@ -616,8 +553,8 @@ ENDHTML;
 
     ###  Summary File
     echo "<h3>Summary</h3>\n<pre>";
-    if ( project_file_exists( $project_name, "summary.txt" ) ) {
-        echo get_project_file( $project_name, "summary.txt" );
+    if ( $project->file_exists("summary.txt") ) {
+        echo $project->get_file("summary.txt");
     } else {
         echo "-- No project summary entered --\n\n";
     }
@@ -626,29 +563,31 @@ ENDHTML;
 }
 
 function part_log_page() {
+    global $repo;
+
     $file     = $_REQUEST['file'];
     $from_rev = $_REQUEST['from_rev'];
     $to_rev   = $_REQUEST['to_rev'];
     if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) || preg_match('/[^\d\.]+/', $from_rev, $m) || preg_match('/[^\d\.]+/', $to_rev, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
 
-    echo "<h2>svn log entries of $file from -r $from_rev to -r $to_rev</h2>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n\n";
+    echo "<h2>$repo->display_name log entries of $file from -r $from_rev to -r $to_rev</h2>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n\n";
 
 #    ###  TESTING
-#    bug [get_revs_in_diff(qw(1.15 1.17))];
-#    bug [get_revs_in_diff(qw(1.17 1.15))];
-#    bug [get_revs_in_diff(qw(1.15 1.12.2.12))];
-#    bug [get_revs_in_diff(qw(1.15 1.17.2.12))];
-#    bug [get_revs_in_diff(qw(1.12.2.12 1.16))];
-#    bug [get_revs_in_diff(qw(1.12.2.12 1.10))];
-#    bug [get_revs_in_diff(qw(1.12.2.12 1.10.11.17))];
-#    bug [get_revs_in_diff(qw(1.10.2.12 1.12.11.17))];
+#    bug [$repo->get_revs_in_diff(qw(1.15 1.17))];
+#    bug [$repo->get_revs_in_diff(qw(1.17 1.15))];
+#    bug [$repo->get_revs_in_diff(qw(1.15 1.12.2.12))];
+#    bug [$repo->get_revs_in_diff(qw(1.15 1.17.2.12))];
+#    bug [$repo->get_revs_in_diff(qw(1.12.2.12 1.16))];
+#    bug [$repo->get_revs_in_diff(qw(1.12.2.12 1.10))];
+#    bug [$repo->get_revs_in_diff(qw(1.12.2.12 1.10.11.17))];
+#    bug [$repo->get_revs_in_diff(qw(1.10.2.12 1.12.11.17))];
 
     ###  Get the partial log
-    $clog = get_svn_log($file);
+    $clog = $repo->get_log($file);
     $entries = array();
-    foreach ( array_reverse( get_revs_in_diff($from_rev, $to_rev) ) as $_ ) {
-        $entries[] = array($_, get_log_entry( $clog, $_ ));
+    foreach ( array_reverse( $repo->get_revs_in_diff($from_rev, $to_rev) ) as $_ ) {
+        $entries[] = array($_, $repo->get_log_entry( $clog, $_ ));
     }
 
     ###  Turn the revision labels into links
@@ -670,19 +609,21 @@ function revision_link( $file, $rev, $str, $project_name, $s_esc, $e_esc, $whole
     if ( empty($s_esc) ) $s_esc = '';
     if ( empty($e_esc) ) $e_esc = '';
 
-    $tag = "$e_esc<a href=\"?action=diff&from_rev=". get_prev_rev($rev) ."&to_rev=". $rev ."&file=". urlencode($file) ."\">$s_esc";
+    $tag = "$e_esc<a href=\"?action=diff&from_rev=". $repo->get_prev_rev($rev) ."&to_rev=". $rev ."&file=". urlencode($file) ."\">$s_esc";
     return $tag . $str ."$e_esc<\/a>$s_esc";
 }
 
 function full_log_page() {
+    global $repo;
+
     $file     = $_REQUEST['file'];
     if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
 
-    echo "<h2>svn log of $file</h2>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n\n";
+    echo "<h2>$repo->command_name log of $file</h2>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n\n";
 
     ###  Get the partial log
-    $clog = get_svn_log($file);
+    $clog = $repo->get_log($file);
     $GLOBALS['full_log_page_tmp'] = array($file, undef, '<xmp>', "<\/xmp>");
     $clog = preg_replace_callback('/(\r?\n(revision ([\d\.]+))\r?\n)/','revision_link',$clog);
     echo "<xmp>\n$clog\n</xmp>";
@@ -693,7 +634,9 @@ function full_log_page_preplace_callback($m) {
 }
 
 function diff_page() {
-    global $SVN_CMD_PREFIX;
+    global $repo;
+
+    global $REPO_CMD_PREFIX;
 
     $file     = $_REQUEST['file'];
     $from_rev = $_REQUEST['from_rev'];
@@ -701,232 +644,21 @@ function diff_page() {
     if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) || preg_match('/[^\d\.]+/', $from_rev, $m) || ! preg_match('/^([\d\.]+|local)$/', $to_rev, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
 
-    echo "<h2>svn diff of $file from -r $from_rev to -r $to_rev</h2>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n\n"; # "
+    echo "<h2>$repo->command_name diff of $file from -r $from_rev to -r $to_rev</h2>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n\n"; # "
 
     ###  Get the partial diff
     $to_rev_clause = ($to_rev == 'local' ? "" : "-r $to_rev");
-    if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-    $cdiff = `${SVN_CMD_PREFIX}svn diff -r$from_rev:$to_rev "$file" 2>&1 | cat`;
-    if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
+    if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
+    $cdiff = `${REPO_CMD_PREFIX}$repo->command_name diff -r$from_rev:$to_rev "$file" 2>&1 | cat`;
+    if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
 
     echo "<xmp>\n$cdiff\n</xmp>";
 }
 
-#########################
-###  SVN batch caching (for speed)
-
-function get_svn_log( $file ) {
-    global $SVN_CMD_PREFIX;
-
-    ###  If not cached, get it and cache
-    if ( ! $svn_cache['log'][$file] ) {
-        $parent_dir = dirname($file);
-        if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$parent_dir") ) {
-            if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-
-
-            
-//            #########################
-//            #########################
-//            ###  DIRTY hack until we can get access...
-//            $cstat = get_svn_status($file);
-//            if ( preg_match('/^(\w?)\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
-//                $last_rev = $m[2];
-//                $svn_cache['log'][$file] = <<<HACK_LOG
-//------------------------------------------------------------------------
-//r$last_rev | nobody | 2012-12-21 12:21:12 -0100 (Not, 21 Dec 2012) | 2 lines
-//
-//Ugh! I cringe!
-//HACK_LOG;
-//            } else $svn_cache['log'][$file] = '';
-//            #########################
-//            #########################
-
-#            bug(`${SVN_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`); exit;
-            $svn_cache['log'][$file] = `${SVN_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`;
-            if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        }
-        else {
-            $svn_cache['log'][$file] = "svn [status aborted]: no such directory `$parent_dir'";
-        }
-    }
-
-    return $svn_cache['log'][$file];
-}
-
-function cache_svn_logs( $files ) {
-    global $SVN_CMD_PREFIX;
-
-    $cache_key = 'log';
-
-    ###  Batch and run the command
-    while ( count($files) > 0 ) {
-        $round = array();
-        $round_str = '';
-        while ( $files && $round < $MAX_BATCH_SIZE && strlen($round_str) < $MAX_BATCH_STRING_SIZE ) {
-            $file = array_shift( $files );
-
-            ###  Skip ones whos parent dir ! exists
-            $parent_dir = dirname($file);
-            if ( ! is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$parent_dir") ) continue;
-
-            array_push( $round, $file );
-            $round_str .= " \"$file\"";
-        }
-
-        $round_checkoff = array_flip($round);
-        if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        $all_entries = `${SVN_CMD_PREFIX}svn log $round_str 2>&1 | cat`;
-#        bug substr($all_entries, -200);
-        if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
-            if ( preg_match('/^\s*$/s', $entry, $m) ) continue;
-
-            ###  Get the filename
-            $file;
-            if ( preg_match('@^\s*RCS file: /sandbox/svnroot/(?:project/)?(.+?),v\n@', $entry, $m ) ) {
-                $file = $m[1];
-            }
-            ###  Other than "normal" output
-            else {
-                # silently skip
-                continue;
-            }
-
-            ###  Cache
-            if ( ! array_key_exists( $round_checkoff[$file] ) ) {
-                continue;
-#                BUG [$file,$round_checkoff];
-#                return trigger_error("file not in round", E_USER_ERROR);
-            }
-            unset( $round_checkoff[$file] );
-            $svn_cache[$cache_key][$file] = $entry;
-        }
-    }
-}
-
-function get_svn_status( $file ) {
-    global $SVN_CMD_PREFIX;
-
-    ###  If not cached, get it and cache
-    if ( ! $svn_cache['status'][$file] ) {
-        $parent_dir = dirname($file);
-        if ( is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$parent_dir") ) {
-            if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-            $svn_cache['status'][$file] = `${SVN_CMD_PREFIX}svn -v status "$file" 2>&1 | cat`;
-            if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        }
-        else {
-            $svn_cache['status'][$file] = "svn [status aborted]: no such directory `$parent_dir'";;
-        }
-    }
-
-    return $svn_cache['status'][$file];
-}
-
-function cache_svn_statuses( $files ) {
-    global $SVN_CMD_PREFIX;
-
-    $cache_key = 'status';
-
-    ###  Batch and run the command
-    while ( count($files) > 0 ) {
-        $round = array();
-        $round_str = '';
-        while ( $files && $round < $MAX_BATCH_SIZE && strlen($round_str) < $MAX_BATCH_STRING_SIZE ) {
-            $file = array_shift( $files );
-
-            ###  Skip ones whos parent dir ! exists
-            $parent_dir = dirname($file);
-            if ( ! is_dir($_SERVER['PROJECT_SVN_BASE'] ."/$parent_dir") ) continue;
-
-            array_push( $round, $file );
-            $round_str .= " \"$file\"";
-        }
-
-        $round_checkoff = array_flip( $round );
-        if ( PROJECT_PROJECT_TIMERS ) START_TIMER('SVN_CMD');
-        $all_entries = `${SVN_CMD_PREFIX}svn status $round_str 2>&1 | cat`;
-#        bug substr($all_entries, -200);
-        if ( PROJECT_PROJECT_TIMERS ) END_TIMER('SVN_CMD');
-        foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
-            if ( preg_match('/^\s*$/s', $entry, $m) ) continue;
-
-            ###  Get the filename
-            if ( preg_match('@Repository revision:\s*[\d\.]+\s*/sandbox/svnroot/(?:project/)?(.+?),v\n@', $entry, $m) ) {
-                $file = $m[1];
-                array_shift( $round );
-            }
-            else if ( preg_match('@^File: (?:no file )?(.+?)\s+Status@', $entry, $m) ) {
-                $file = $m[1];
-
-                if ( preg_match('@/\Q$file\E$@', $round[0], $m) ) {
-                    $file = array_shift( $round );
-                }
-                else {
-#                    bug [$entry, $file];
-                }
-            }
-            ###  Other than "normal" output
-            else {
- #               bug [$entry];
-                # silently skip
-                continue;
-            }
-
-            ###  Cache
-            if ( ! array_key_exists( $round_checkoff[$file] ) ) { 
-                continue;
-                # BUG [$entry, $round, $file,$round_checkoff];
-                # return trigger_error("file not in round", E_USER_ERROR); 
-            }
-            unset( $round_checkoff[$file] );
-            $svn_cache[$cache_key][$file] = $entry;
-        }
-    }
-}
 
 
 #########################
 ###  Project base access subroutines
-
-function get_project_ls($project) {
-    global $SYSTEM_PROJECT_BASE;
-    if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $project, $m) ) 
-        return trigger_error("Please don't hack...", E_USER_ERROR);
-
-    if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
-    return `/bin/ls -la --time-style=long-iso $SYSTEM_PROJECT_BASE/$project | head -n2 | tail -n1`;
-}
-
-function get_project_stat($project) {
-    global $SYSTEM_PROJECT_BASE;
-    if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $project, $m) ) 
-        return trigger_error("Please don't hack...", E_USER_ERROR);
-
-    if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
-    return stat($SYSTEM_PROJECT_BASE ."/$project");
-}
-
-function project_file_exists($project, $file) {
-    global $SYSTEM_PROJECT_BASE;
-    if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $project, $m) ) 
-        return trigger_error("Please don't hack...", E_USER_ERROR);
-    if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) return trigger_error("Please don't hack...", E_USER_ERROR);
-
-    if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
-    return ( file_exists($SYSTEM_PROJECT_BASE ."/$project/$file") );
-}
-
-function get_project_file($project, $file) {
-    global $SYSTEM_PROJECT_BASE;
-    if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $project, $m) ) 
-        return trigger_error("Please don't hack...", E_USER_ERROR);
-    if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) return trigger_error("Please don't hack...", E_USER_ERROR);
-
-    if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
-    return `cat $SYSTEM_PROJECT_BASE/$project/$file`;
-}
 
 function get_projects() {
     global $SYSTEM_PROJECT_BASE, $PROJECTS_DIR_IGNORE_REGEXP;
@@ -934,6 +666,66 @@ function get_projects() {
     if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, $tmp );
     return explode("\n",`ls -1 $SYSTEM_PROJECT_BASE | grep -E -v '^(archive|logs|$PROJECTS_DIR_IGNORE_REGEXP)\$'`);
 }
+
+
+#########################
+###  Delayed Load
+
+function delayed_load_span($params, $lambda_function_name, $loading_msg = '<em class="loading">Loading ...</em>') {
+    global $delayed_load_calls, $delayed_load_id;
+    $id = $delayed_load_id++;
+    $delayed_load_calls[] = array( $id, $lambda_function_name, $params );
+    return '<span id="loading_'. $id .'">'. $loading_msg .'</span>';
+}
+function delayed_load_div($params, $lambda_function_name, $loading_msg = '<em class="loading">Loading ...</em>') {
+    global $delayed_load_calls, $delayed_load_id;
+    $id = $delayed_load_id++;
+    $delayed_load_calls[] = array( $id, $lambda_function_name, $params );
+    return '<div id="loading_'. $id .'">'. $loading_msg .'</div>';
+}
+function run_delayed_load() {
+    global $delayed_load_calls, $delayed_load_id;
+
+    ///  Trick to get the browser to display NOW!
+    print str_repeat(' ',100);
+    flush();ob_flush();
+
+    foreach ($delayed_load_calls as $func_call) {
+        list( $id, $func, $params ) = $func_call;
+        $result = call_user_func_array($func, $params);
+
+        print( '<script type="text/javascript">document.getElementById("loading_'
+               . $id .'").innerHTML = '
+               ."'". str_replace(array("'","\n"), array("\\'","\\n'\n\t+'"), $result) ."'"
+               .';</script>'
+               );
+
+        ///  Get the Browser to display...
+        flush();ob_flush();
+    }
+}
+
+###  Because PHP SUx!
+function now_doc($tag) {
+    $trace = debug_backtrace();
+
+    ///  Loop thru and find the excerpt
+    $handle = @fopen($trace[0]['file'], "r");
+    if ($handle) {
+        $line = 0;  $done = false;  $excerpt = '';
+        while (($buffer = fgets($handle, 4096)) !== false) {
+            $line++;
+            if ( $line > $trace[0]['line'] && $buffer == $tag ."\n" ) $done = true;
+            if ( $line > $trace[0]['line'] && ! $done ) $excerpt .= $buffer;
+        }
+        fclose($handle);
+    }
+    return $excerpt;
+}
+
+
+#########################
+###  Remote Call
 
 function call_remote($sub, $params) {
     global $SYSTEM_PROJECT_BASE;
@@ -975,74 +767,11 @@ function call_remote($sub, $params) {
 
 
 #########################
-###  Utility functions
-
-function log_svn_action( $command ) {
-    global $PROJECT_SAFE_BASE, $env_mode;
-
-    $log_line = join(',', array(time(), getmypid(), date(DATE_RFC822,time()), $command)). "\n";
-
-    $file = "$PROJECT_SAFE_BASE/project_svn_log_".$env_mode.".csv";
-    file_put_contents($file, $log_line, FILE_APPEND);
-}
-
-function get_affected_files( $project_name ) {
-
-    $files = array();
-    foreach ( explode("\n",get_project_file( $project_name, "affected_files.txt" )) as $file ) {
-        $file = preg_replace('/(\s*\#.*$|\s+)$/','',$file);
-        if ( strlen( $file ) == 0 ) continue;
-
-        array_push( $files, $file );
-    }
-
-    return $files;
-}
-
-function get_file_tags( $project_name ) {
-
-    $file_tags = array();
-    foreach ( explode("\n",get_project_file( $project_name, "file_tags.csv" )) as $line ) {
-        $vals = str_getcsv($line);
-        if ( ! $vals >= 2 && ! preg_match('/[\"]/', $vals[1], $m) && preg_match('/^\d+\.\d+(\.\d+\.\d+)?$/', $vals[1], $m) ) continue;
-        $file_tags{ $vals[0] } = $vals[1];
-    }
-
-    return $file_tags;
-}
-
-function get_revs_in_diff( $from, $to ) {
-    if ( $from == $to ) return array();
-
-    $revs = array();
-
-    if ( $from >= $to ) return array();
-    $revs = array();  foreach ( range( ($from+1), $to ) as $_ )  { $revs[] = $_; }
-
-    return $revs;
-}
-
-function get_prev_rev( $rev ) {
-    if ( $rev == '1.1' ) return $rev;
-
-    if ( preg_match('/^(\d+\.\d+)\.\d+\.1$/', $rev, $m) ) {
-        return $m[1];
-    }
-    else if ( preg_match('/^(\d+\.(?:\d+\.\d+\.)?)(\d+)$/', $rev, $m) ) {
-        return $m[1].($m[2]-1);
-    }
-}
-
-function get_log_entry( $clog, $rev ) {
-    preg_match('/---------+\nr\Q'. $rev .'\E\s*\|.+?(?=---------+|$)/s', $clog, $m);
-    return $m[0];
-}
-
-
-#########################
 ###  Display Logic
 
 function style_sheet() {
+    global $repo;
+
     $ret = <<<ENDSTYLE
 <style>
 body, td        { font-family: Verdana, Arial, Helvetica;
@@ -1068,7 +797,7 @@ var disable_actions = 0;
 function confirmAction(which,newLocation) {
     //  If locally modified files, diabled actions
     if ( disable_actions ) {
-        alert("Some of the below files are locally modified, or have conflicts.  SVN update actions would possibly conflict the file leaving code files in a broken state.  Please resolve these differences manually (command line) before continuing.\\n\\nActions are currently DISABLED.");
+        alert("Some of the below files are locally modified, or have conflicts.  $repo->display_name update actions would possibly conflict the file leaving code files in a broken state.  Please resolve these differences manually (command line) before continuing.\\n\\nActions are currently DISABLED.");
         return void(null);
     }
 
@@ -1090,7 +819,7 @@ function env_header() {
     ###  A line of status for sandbox location
     $ret = "<table width=\"100%\" cellspacing=0 cellpadding=0 border=0><tr><td><div style=\"font-size:70%\">";
     $ret .= "<b>Go to:</b> <a href=\"?\">Project List</a>\n";
-    $ret .= "<br><b>Current Sandbox Root</b>: ". ( $GLOBALS['OBSCURE_SANDBOX_ROOT'] ? '... '. substr( $_SERVER['PROJECT_SVN_BASE'], -30) : $_SERVER['PROJECT_SVN_BASE'] );
+    $ret .= "<br><b>Current Sandbox Root</b>: ". ( $GLOBALS['OBSCURE_SANDBOX_ROOT'] ? '... '. substr( $_SERVER['PROJECT_REPO_BASE'], -30) : $_SERVER['PROJECT_REPO_BASE'] );
 
     $ret .= "</div></td><td align=right><div style=\"font-size:70%\">";
 
