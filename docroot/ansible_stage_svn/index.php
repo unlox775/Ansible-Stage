@@ -12,7 +12,6 @@
 
 require_once(dirname(__FILE__) .'/lib/config.php');
 require_once(dirname(__FILE__) .'/lib/debug.inc.php');
-require_once(dirname(__FILE__) .'/lib/File_NFSLock.class.php');
 require_once(dirname(__FILE__) .'/lib/Repo.class.php');
 require_once(dirname(__FILE__) .'/lib/Project.class.php');
 require_once(dirname(__FILE__) .'/'. $ANSIBLE_REPO_FILE);
@@ -28,12 +27,15 @@ $delayed_load_id = 1;
 $delayed_load_calls = array();
 
 ###  Connect to the tags DB
-if ( ! file_exists( $SYSTEM_TAGS_DB ) ) $INIT_DB_NOW = true;
+if ( ! empty($SYSTEM_TAGS_DB_FILE) ) {
+    if ( ! file_exists( $SYSTEM_TAGS_DB_FILE ) ) $INIT_DB_NOW = true;
+    
+    ###  Get an exclusive File_NFSLock on the DB file...
+    require_once(dirname(__FILE__) .'/lib/File_NFSLock.class.php');
+    $db_file_lock = new File_NFSLock($SYSTEM_TAGS_DB,LOCK_EX,10,30*60); # stale lock timeout after 30 minutes
+}
 
-###  Get an exclusive File_NFSLock on the DB file...
-$db_file_lock = new File_NFSLock($SYSTEM_TAGS_DB,LOCK_EX,10,30*60); # stale lock timeout after 30 minutes
-
-$dbh = new PDO('sqlite:'.$SYSTEM_TAGS_DB);  $GLOBALS['orm_dbh'] = $dbh;
+$dbh = new PDO($SYSTEM_TAGS_DB, $SYSTEM_TAGS_DB_USERNAME, $SYSTEM_TAGS_DB_PASSWORD);  $GLOBALS['orm_dbh'] = $dbh;
 $dbh->setAttribute( PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION );
 if ( ! empty($INIT_DB_NOW) ) {
     $dbh->exec("CREATE TABLE file_tag (
@@ -44,6 +46,7 @@ if ( ! empty($INIT_DB_NOW) ) {
                    )
                   ");
 }
+$BUG_ON = true;
 
 
 #########################
@@ -151,9 +154,9 @@ else {
     echo style_sheet();
     index_page();
 }
-if ( PROJECT_PROJECT_TIMERS ) 
-report_timers(  );
 run_delayed_load();
+if ( PROJECT_PROJECT_TIMERS ) 
+report_timers();
 # exit 0;
 
 
@@ -375,8 +378,8 @@ ENDHTML;
         $target_vers = '->';
 
         ###  Get Current Version
-        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-            global $repo;
+#        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+#            global $repo;
             if ( ! file_exists($_SERVER['PROJECT_REPO_BASE'] ."/$file") ) {
                 $cur_vers = '<i>-- n/a --</i>';
             } else if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") ) {
@@ -407,15 +410,16 @@ ENDHTML;
                     $cur_vers = "<i>exists, but not in $repo->display_name!</i><!--$cstat-->";
                 }
             }
-            return $cur_vers;
-DELAY
-*/
-));
+
+#            return $cur_vers;
+#DELAY
+#*/
+#));
 
         ###  Get PROD_SAFE Version
-        $prod_safe_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+        $prod_safe_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file);
+            $clog = $repo->get_log($file, 10);
 
             $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_SAFE');
             $row = $sth->fetch(PDO::FETCH_NUM);
@@ -435,9 +439,9 @@ DELAY
 ));
 
         ###  Get PROD_TEST Version
-        $prod_test_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+        $prod_test_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file);
+            $clog = $repo->get_log($file, 10);
 
             $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, 'PROD_TEST');
             $row = $sth->fetch(PDO::FETCH_NUM);
@@ -457,9 +461,9 @@ DELAY
 ));
 
         ###  Get HEAD Version
-        $head_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+        $head_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file);
+            $clog = $repo->get_log($file, 10);
 
             if ( preg_match('/^-------+\nr(\d+)\s/m', $clog, $m) ) {
                 $head_rev = $m[1];
@@ -494,9 +498,9 @@ DELAY
 ));
 
         ###  Changes by
-        $changes_by = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+        $changes_by = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file);
+            $clog = $repo->get_log($file, 10);
 
             $c_by_rev = onLive() ? $cur_rev : $prod_test_rev;
             if ( $c_by_rev && $target_rev ) {
@@ -593,7 +597,7 @@ function part_log_page() {
     ###  Turn the revision labels into links
     foreach ( $entries as $entry ) {
         $GLOBALS['part_log_page_tmp'] = array($file, $entry[0], undef, '<xmp>', "<\/xmp>");
-        $entry[1] = preg_replace_callback('/^((revision [\d\.]+)\s+)/','revision_link', $entry[1]);
+        $entry[1] = preg_replace_callback('/^((r[\d\.]+)\s+)/','part_log_page_preplace_callback', $entry[1]);
     }
 
     $tmp = array();  foreach ( $entries as $entry ) $tmp[] = $entry[1];
@@ -601,16 +605,18 @@ function part_log_page() {
 }
 function part_log_page_preplace_callback($m) {
     list( $file, $rev, $project_name, $s_esc, $e_esc ) = $GLOBALS['part_log_page_tmp'];
-    revision_link($file, $rev, $m[2], $project_name, $s_esc, $e_esc, $m[1]);
+    return revision_link($file, $rev, $m[2], $project_name, $s_esc, $e_esc, $m[1]);
 }
 
 function revision_link( $file, $rev, $str, $project_name, $s_esc, $e_esc, $whole_match) {
-    if ( $rev == '1.1' ) return $whole_match;
+    global $repo;
+    list($first_rev, $err) = $repo->get_first_rev($file);
+    if ( $first_rev && $rev == $first_rev ) return $whole_match;
     if ( empty($s_esc) ) $s_esc = '';
     if ( empty($e_esc) ) $e_esc = '';
 
-    $tag = "$e_esc<a href=\"?action=diff&from_rev=". $repo->get_prev_rev($rev) ."&to_rev=". $rev ."&file=". urlencode($file) ."\">$s_esc";
-    return $tag . $str ."$e_esc<\/a>$s_esc";
+    $tag = "$e_esc<a href=\"?action=diff&from_rev=". $repo->get_prev_rev($file, $rev) ."&to_rev=". $rev ."&file=". urlencode($file) ."\">$s_esc";
+    return $tag . $str ."$e_esc</a>$s_esc";
 }
 
 function full_log_page() {
@@ -624,13 +630,13 @@ function full_log_page() {
 
     ###  Get the partial log
     $clog = $repo->get_log($file);
-    $GLOBALS['full_log_page_tmp'] = array($file, undef, '<xmp>', "<\/xmp>");
-    $clog = preg_replace_callback('/(\r?\n(revision ([\d\.]+))\r?\n)/','revision_link',$clog);
+    $GLOBALS['full_log_page_tmp'] = array($file, undef, '<xmp>', "</xmp>");
+    $clog = preg_replace_callback('/((r([\d\.]+)[^\n]+\n))/s','full_log_page_preplace_callback',$clog);
     echo "<xmp>\n$clog\n</xmp>";
 }
 function full_log_page_preplace_callback($m) {
     list( $file, $project_name, $s_esc, $e_esc ) = $GLOBALS['full_log_page_tmp'];
-    revision_link($file, $m[3], $m[2], $project_name, $s_esc, $e_esc, $m[1]);
+    return revision_link($file, $m[3], $m[2], $project_name, $s_esc, $e_esc, $m[1]);
 }
 
 function diff_page() {
@@ -649,7 +655,8 @@ function diff_page() {
     ###  Get the partial diff
     $to_rev_clause = ($to_rev == 'local' ? "" : "-r $to_rev");
     if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
-    $cdiff = `${REPO_CMD_PREFIX}$repo->command_name diff -r$from_rev:$to_rev "$file" 2>&1 | cat`;
+    $revision_arg = ($to_rev == 'local') ? "-r$from_rev" : "-r$from_rev:$to_rev";
+    $cdiff = `${REPO_CMD_PREFIX}$repo->command_name diff $revision_arg "$file" 2>&1 | cat`;
     if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
 
     echo "<xmp>\n$cdiff\n</xmp>";
@@ -814,7 +821,7 @@ ENDSCRIPT;
 }
 
 function env_header() {
-    global $PROJECT_STAGING_AREAS, $PROJECT_SANDBOX_AREAS;
+    global $PROJECT_STAGING_AREAS, $PROJECT_SANDBOX_AREAS, $DEFAULT_URL_PROTOCOL;
 
     ###  A line of status for sandbox location
     $ret = "<table width=\"100%\" cellspacing=0 cellpadding=0 border=0><tr><td><div style=\"font-size:70%\">";
@@ -835,7 +842,7 @@ function env_header() {
         $selected = false;
         if ( ! empty( $area['test_by_func'] ) )   $selected = call_user_func($area['test_by_func']);
         if ( ! empty( $area['test_uri_regex'] ) ) $selected = preg_match($area['test_uri_regex'], $uri);
-        $tmp[] = ( "<a href=\"http://". 
+        $tmp[] = ( "<a href=\"". $DEFAULT_URL_PROTOCOL ."://". 
                    ( ! empty( $area['host'] ) ? $area['host'] : $_SERVER['HTTP_HOST'] ) . $_SERVER['SCRIPT_NAME'] . 
                    ( ! empty( $area['path_info'] ) ? $area['path_info'] : '' ) 
                    ."?". $query_string ."\">".  ($selected ? "<b>" : "") . $area['label'] ."</b></a>"
@@ -849,7 +856,7 @@ function env_header() {
         $selected = false;
         if ( ! empty( $area['test_by_func'] ) )   $selected = call_user_func($area['test_by_func']);
         if ( ! empty( $area['test_uri_regex'] ) ) $selected = preg_match($area['test_uri_regex'], $uri);
-        $tmp[] = ( "<a href=\"http://". 
+        $tmp[] = ( "<a href=\"". $DEFAULT_URL_PROTOCOL ."://". 
                    ( ! empty( $area['host'] ) ? $area['host'] : $_SERVER['HTTP_HOST'] ) . $_SERVER['SCRIPT_NAME'] . 
                    ( ! empty( $area['path_info'] ) ? $area['path_info'] : '' ) 
                    ."?". $query_string ."\">".  ($selected ? "<b>" : "") . $area['label'] ."</b></a>"
@@ -862,7 +869,7 @@ function env_header() {
 }
 
 function get_area_url($area_code) {
-    global $PROJECT_STAGING_AREAS, $PROJECT_SANDBOX_AREAS;
+    global $PROJECT_STAGING_AREAS, $PROJECT_SANDBOX_AREAS, $DEFAULT_URL_PROTOCOL;
 
     $query_string = $_SERVER['QUERY_STRING'];
     $query_string = preg_replace('/[\&\?](cmd|command_output|tag)=[^\&]+/','',$query_string);
@@ -870,7 +877,7 @@ function get_area_url($area_code) {
 
     foreach ( $PROJECT_STAGING_AREAS as $area ) {
         if ( ! empty( $area['role'] ) && $area['role'] == $area_code )
-            return( "http://". 
+            return( $DEFAULT_URL_PROTOCOL ."://". 
                    ( ! empty( $area['host'] ) ? $area['host'] : $_SERVER['HTTP_HOST'] ) . $_SERVER['SCRIPT_NAME'] . 
                    ( ! empty( $area['path_info'] ) ? $area['path_info'] : '' ) 
                    ."?". $query_string

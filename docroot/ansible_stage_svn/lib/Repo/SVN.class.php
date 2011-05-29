@@ -144,7 +144,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     #########################
     ###  SVN file Log and Status caching (for speed)
     
-    public function get_log( $file ) {
+    public function get_log( $file, $limit = null ) {
         global $REPO_CMD_PREFIX;
     
         ###  If not cached, get it and cache
@@ -172,7 +172,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     //            #########################
     
     #            bug(`${REPO_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`); exit;
-                $this->repo_cache['log'][$file] = `${REPO_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`;
+                $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
+                $this->repo_cache['log'][$file] = `${REPO_CMD_PREFIX}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
                 if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
             }
             else {
@@ -330,15 +331,58 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         return $revs;
     }
 
-    function get_prev_rev( $rev ) {
-        if ( $rev == '1.1' ) return $rev;
+    function get_head_rev( $file ) {
+        $clog = $this->get_log($file);
+        
+        $head_rev = null;  $error = '';
+        if ( preg_match('/^-------+\nr(\d+)\s/m', $clog, $m) ) {
+            $head_rev = $m[1];
+        } else if ( preg_match('/nothing known about|no such directory/', $clog, $m) ) {
+            $error = "Not in $this->display_name";
+        } else {
+            $error = "malformed $this->command_name log";
+        }
+        
+        return( array( $head_rev, $error) );
+    }
 
-        if ( preg_match('/^(\d+\.\d+)\.\d+\.1$/', $rev, $m) ) {
-            return $m[1];
+    function get_prev_rev( $file, $rev ) {
+
+        $clog = $this->get_log($file);
+
+        ///  Get a list of ALL entries...
+        $entries = array();
+        list($head_rev, $err) = $this->get_head_rev($file);
+        list($first_rev, $err) = $this->get_first_rev($file);
+        if ( ! $head_rev || ! $first_rev ) return null;
+        foreach ( $this->get_revs_in_diff($first_rev, $head_rev) as $_ ) {
+            $entry = $this->get_log_entry( $clog, $_ );
+            if ( ! empty($entry) ) $entries[] = array($_, $entry);
+        } 
+
+        ///  Loop through (Low to high)
+        $prev_rev = null;
+        foreach ( $entries as $e ) {
+            if ( $e[0] >= $rev ) return $prev_rev;
+            $prev_rev = $e[0];
         }
-        else if ( preg_match('/^(\d+\.(?:\d+\.\d+\.)?)(\d+)$/', $rev, $m) ) {
-            return $m[1].($m[2]-1);
+        return $prev_rev;
+    }
+
+    function get_first_rev( $file ) {
+        $clog = $this->get_log($file);
+        
+        $first_rev = null;  $error = '';
+        if ( preg_match_all('/^-------+\nr(\d+)\s/m', $clog, $m, PREG_SET_ORDER) ) {
+            $last_match = array_pop( $m );
+            $first_rev = $last_match[1];
+        } else if ( preg_match('/nothing known about|no such directory/', $clog, $m) ) {
+            $error = "Not in $this->display_name";
+        } else {
+            $error = "malformed $this->command_name log";
         }
+        
+        return( array( $first_rev, $error) );
     }
 
     function get_log_entry( $clog, $rev ) {

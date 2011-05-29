@@ -11,20 +11,26 @@ $MAX_BATCH_STRING_SIZE = 4096;
 ###  Directory Locations
 $SYSTEM_PROJECT_BASE = '/export/example/projects';
 $PROJECT_SAFE_BASE = '/export/example/projects/logs';
-$SYSTEM_TAGS_DB = $SYSTEM_PROJECT_BASE. '/tags_db.sq3';
+$SYSTEM_TAGS_DB_FILE = $SYSTEM_PROJECT_BASE. '/tags_db.sq3';
+$SYSTEM_TAGS_DB = 'sqllite:'. $SYSTEM_TAGS_DB_FILE;
+$SYSTEM_TAGS_DB_USERNAME = '';
+$SYSTEM_TAGS_DB_PASSWORD = '';
 $PROJECTS_DIR_IGNORE_REGEXP = 'tags_db.sq3|tags_db.sq3.NFSLock'; # note, this is POSIX egrep-style
+$ANSIBLE_REPO_TYPE  = 'SVN';
+$ANSIBLE_REPO_FILE  = 'lib/Repo/'.       $ANSIBLE_REPO_TYPE .'.class.php';
+$ANSIBLE_REPO_CLASS = 'Ansible__Repo__'. $ANSIBLE_REPO_TYPE;
 
 $OBSCURE_SANDBOX_ROOT = false;
 
-///  Set SVN base by PATH INFO
-$SVN_BASE_BY_STAGE
+///  Set REPO base by PATH INFO
+$REPO_BASE_BY_STAGE
 = array( 'live' => '/var/www/vhosts/ansible-demo.joesvolcano.net',
          'beta' => '/var/www/vhosts/beta',
          'dave' => '/var/www/vhosts/dave',
          'jon'  => '/var/www/vhosts/jon'
          );
 if ( ! empty( $_SERVER['PATH_INFO'] ) && preg_match('@/([\w\-]+)/?$@', $_SERVER['PATH_INFO'], $m)
-     && isset( $SVN_BASE_BY_STAGE[ $m[1] ] )
+     && isset( $REPO_BASE_BY_STAGE[ $m[1] ] )
      ) {
     $SYSTEM_STAGE = $m[1];
     $env_mode = ( ( $SYSTEM_STAGE == 'live' || $SYSTEM_STAGE == 'beta')
@@ -32,15 +38,15 @@ if ( ! empty( $_SERVER['PATH_INFO'] ) && preg_match('@/([\w\-]+)/?$@', $_SERVER[
                   : 'alpha'
                   );
 
-    ///  Set the PROJECT_SVN_BASE
-    $_SERVER['PROJECT_SVN_BASE'] = $SVN_BASE_BY_STAGE[ $m[1] ];
+    ///  Set the PROJECT_REPO_BASE
+    $_SERVER['PROJECT_REPO_BASE'] = $REPO_BASE_BY_STAGE[ $m[1] ];
 }
 
-# ///  Or Hard-code SVN Base for this Instance
-# $_SERVER['PROJECT_SVN_BASE'] = realpath( dirname(__FILE__) .'/../../'); # Just get it from our relative location
+# ///  Or Hard-code REPO Base for this Instance
+# $_SERVER['PROJECT_REPO_BASE'] = realpath( dirname(__FILE__) .'/../../'); # Just get it from our relative location
 
-///  Define a custom path to SVN
-$SVN_CMD_PREFIX =     'cd ' .$_SERVER['PROJECT_SVN_BASE']. ';      /usr/bin/';
+///  Define a custom path to REPO
+$REPO_CMD_PREFIX =     'cd ' .$_SERVER['PROJECT_REPO_BASE']. ';      /usr/bin/';
 
 
 ###  Determining which environment we are on...
