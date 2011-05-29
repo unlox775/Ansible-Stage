@@ -53,8 +53,9 @@ alias psum    project_summary
 # setenv EDITOR emacs
 
 ###  ###  Operate on affected files
-###  alias aff_stat          'cd $SYSTEM_SVN_BASE; setenv CUR_PROJECT_DIR $SYSTEM_PROJECT_BASE/`cat ~/.current_project`; svn status           `cat $CUR_PROJECT_DIR/affected_files.txt`'
-###  alias aff_diff          'cd $SYSTEM_SVN_BASE; setenv CUR_PROJECT_DIR $SYSTEM_PROJECT_BASE/`cat ~/.current_project`; svn diff             `cat $CUR_PROJECT_DIR/affected_files.txt`'
-###  alias aff_log           'cd $SYSTEM_SVN_BASE; setenv CUR_PROJECT_DIR $SYSTEM_PROJECT_BASE/`cat ~/.current_project`; svn log --limit 500  `cat $CUR_PROJECT_DIR/affected_files.txt`'
+###  alias aff_cat           'cd $SYSTEM_SVN_BASE; setenv CUR_PROJECT_DIR $SYSTEM_PROJECT_BASE/`cat ../.current_project`; cat $CUR_PROJECT_DIR/affected_files.txt'
+###  alias aff_stat          'cd $SYSTEM_SVN_BASE; setenv CUR_PROJECT_DIR $SYSTEM_PROJECT_BASE/`cat ../.current_project`; svn status           `cat $CUR_PROJECT_DIR/affected_files.txt`'
+###  alias aff_diff          'cd $SYSTEM_SVN_BASE; setenv CUR_PROJECT_DIR $SYSTEM_PROJECT_BASE/`cat ../.current_project`; svn diff             `cat $CUR_PROJECT_DIR/affected_files.txt`'
+###  alias aff_log           'cd $SYSTEM_SVN_BASE; setenv CUR_PROJECT_DIR $SYSTEM_PROJECT_BASE/`cat ../.current_project`; cat `cat $CUR_PROJECT_DIR/affected_files.txt` | perl -pe 's/\n/\0/' | xargs -0 -n1 svn log --limit 5 | less'
 
 

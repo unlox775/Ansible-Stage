@@ -74,8 +74,8 @@ foreach ( @ARGV ) {
     ###  Skip silently if the file is in a .svn/ directory
     next if m@/.svn/@;
 
-    ###  Skip silently if the file is a directory
-    next if -d;
+#    ###  Skip silently if the file is a directory
+#    next if -d;
 
     ###  Skip silently if the file is a backup file of some sort (the name contains pound (#) signs)
     next if /\#/;
