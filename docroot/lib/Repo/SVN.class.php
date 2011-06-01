@@ -320,13 +320,13 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     #########################
     ###  Utility functions
 
-    public function get_revs_in_diff( $from, $to ) {
+    public function get_revs_in_diff( $file, $from, $to ) {
         if ( $from == $to ) return array();
 
         $revs = array();
 
         if ( $from >= $to ) return array();
-        $revs = array();  foreach ( range( ($from+1), $to ) as $_ )  { $revs[] = $_; }
+        $revs = array();  foreach ( range( ($from+1), $to ) as $_ )  { $entry = $this->get_log_entry( $this->get_log($file), $_);  if ( ! empty($entry) ) $revs[] = $_; }
 
         return $revs;
     }
@@ -392,7 +392,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         list($head_rev, $err) = $this->get_head_rev($file);
         list($first_rev, $err) = $this->get_first_rev($file);
         if ( ! $head_rev || ! $first_rev ) return null;
-        foreach ( $this->get_revs_in_diff($first_rev, $head_rev) as $_ ) {
+        foreach ( $this->get_revs_in_diff($file, $first_rev, $head_rev) as $_ ) {
             $entry = $this->get_log_entry( $clog, $_ );
             if ( ! empty($entry) ) $entries[] = array($_, $entry);
         } 

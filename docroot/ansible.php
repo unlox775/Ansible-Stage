@@ -83,7 +83,7 @@ else if ( $_REQUEST['action'] == 'update' ) {
     list( $cmd, $command_output ) = $repo->updateAction( $project, $tag );
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
+    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9))) ."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)));
     if ( strlen( $bounce_url ) > 2000 ) {
         echo style_sheet();
         echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
@@ -112,7 +112,7 @@ else if ( $_REQUEST['action'] == 'tag' ) {
     list( $cmd, $command_output ) = $repo->tagAction( $project, $tag );
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode($cmd) ."&command_output=". urlencode($command_output);
+    $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9))) ."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)));
     if ( strlen( $bounce_url ) > 2000 ) {
         echo style_sheet();
         echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
@@ -196,7 +196,7 @@ function index_page() {
         $project_info = array( 'name'                => $project_name,
                                'creator'             => ($ls[2] || '-'),
                                'group'               => ($ls[3] || '-'),
-                               'mod_time'            => ($stat[9] || 0),
+                               'mod_time'            => ($stat ? $stat[9] : 0),
                                'mod_time_display'    => ($stat ? date('n/j/y',$stat[9])  : '-'),
                                'has_summary'         => ( (is_dir($SYSTEM_PROJECT_BASE))
                                                           ? ( $project->file_exists( "summary.txt" ) ? "YES" : "")
@@ -205,10 +205,10 @@ function index_page() {
                                'aff_file_count'      => count($project->get_affected_files()),
                                );
         
-        array_push( $projects, $project_info );
+        $projects[ $project_info['mod_time'] ] = $project_info;
     }
 
-    # sort {$b['mod_time'] cmp $a['mod_time']} 
+    ksort($projects, SORT_NUMERIC);  $projects = array_reverse( $projects );
     foreach ( $projects as $project ) {
 #        echo "<tr><td></li>\n";
         print( "<tr>"
@@ -235,7 +235,7 @@ function view_project_page() {
     ###  Command output
     if ( ! empty( $cmd ) ) {
         echo "<font color=red><h3>Command Output</h3>\n";
-        echo "<xmp>> $cmd\n\n$command_output\n</xmp>\n\n";
+        echo "<xmp>> ". gzinflate( base64_decode($cmd) ) ."\n\n". gzinflate( base64_decode($command_output) ) ."\n</xmp>\n\n";
         echo "</font>\n\n";
         echo "<br><br><a href=\"?action=view_project&pname=$project->project_name\" style=\"font-size:70%\">&lt;&lt;&lt; Click here to hide Command output &gt;&gt;&gt;</a><br>\n\n";
     }
@@ -500,14 +500,14 @@ DELAY
             list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
             $c_by_rev = onLive() ? $cur_rev : $prod_test_rev;
             if ( $c_by_rev && $target_rev ) {
-                $diff_revs = $repo->get_revs_in_diff($c_by_rev, $target_rev);
+                $diff_revs = $repo->get_revs_in_diff($file, $c_by_rev, $target_rev);
                 $names = array();  foreach ( array_reverse( $diff_revs ) as $_ ) { $names[] = $repo->get_rev_committer( $file, $_ ); }
                 $names = array_unique($names);
     
                 ###  Find regressions!
                 $changes_by = null;
                 if ( count($diff_revs) == 0 && $c_by_rev != $target_rev ) {
-                    $reverse_revs = $repo->get_revs_in_diff($target_rev, $c_by_rev);
+                    $reverse_revs = $repo->get_revs_in_diff($file, $target_rev, $c_by_rev);
                     if ( count($reverse_revs) > 0 ) {
                         $changes_by = '<font color=red><b><i>-'. count( $reverse_revs ) .' rev'. (count($reverse_revs) == 1 ? '' : 's'). '!!!</i></b></font>';
                     }
@@ -588,19 +588,19 @@ function part_log_page() {
     echo "<h2>$repo->display_name log entries of $file from -r $from_rev to -r $to_rev</h2>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n\n";
 
 #    ###  TESTING
-#    bug [$repo->get_revs_in_diff(qw(1.15 1.17))];
-#    bug [$repo->get_revs_in_diff(qw(1.17 1.15))];
-#    bug [$repo->get_revs_in_diff(qw(1.15 1.12.2.12))];
-#    bug [$repo->get_revs_in_diff(qw(1.15 1.17.2.12))];
-#    bug [$repo->get_revs_in_diff(qw(1.12.2.12 1.16))];
-#    bug [$repo->get_revs_in_diff(qw(1.12.2.12 1.10))];
-#    bug [$repo->get_revs_in_diff(qw(1.12.2.12 1.10.11.17))];
-#    bug [$repo->get_revs_in_diff(qw(1.10.2.12 1.12.11.17))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.15 1.17))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.17 1.15))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.15 1.12.2.12))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.15 1.17.2.12))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.12.2.12 1.16))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.12.2.12 1.10))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.12.2.12 1.10.11.17))];
+#    bug [$repo->get_revs_in_diff($file, qw(1.10.2.12 1.12.11.17))];
 
     ###  Get the partial log
     $clog = $repo->get_log($file);
     $entries = array();
-    foreach ( array_reverse( $repo->get_revs_in_diff($from_rev, $to_rev) ) as $_ ) {
+    foreach ( array_reverse( $repo->get_revs_in_diff($file, $from_rev, $to_rev) ) as $_ ) {
         $entries[] = array($_, $repo->get_log_entry( $clog, $_ ));
     }
 
@@ -641,7 +641,7 @@ function full_log_page() {
     ###  Get the partial log
     $clog = $repo->get_log($file);
     $GLOBALS['full_log_page_tmp'] = array($file, undef, '<xmp>', "</xmp>");
-    $clog = preg_replace_callback('/((r([\d\.]+)[^\n]+\n))/s','full_log_page_preplace_callback',$clog);
+    $clog = preg_replace_callback('/(\n(r([\d]+)[^\n]+\n))/s','full_log_page_preplace_callback',$clog);
     echo "<xmp>\n$clog\n</xmp>";
 }
 function full_log_page_preplace_callback($m) {
