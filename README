@@ -1,14 +1,17 @@
-For now, I've put both CVS and the SVN versions side-by-side in
-the docroot folder.  The CVS version is frest from the rough port
-from Perl, and I barely got it to compile (NOTE, I skipped over
-the Remote Call stuff, which shouldn't be too hard to port)
+The CVS and SVN versions are now complete and sharing the same
+code.  You can define which Version system you are using with a single config parameter.
+
+To configure your install, all changes can be made in the docroot/lib/config.inc.php
+
+Command-line tools to add / edit / and add files to projects are
+in the bin folder as well as aliases files that you can source
+from your .bashrc or .cshrc files (after some customization).
+
+Since the remote_call isn't implemented yet, we are still limited
+to all staging envs at least being able to gain access to the
+/projects/ dir to be able to function.
 
 TODO:
-1) Finish porting the remote Perl-to-PHP port for CVS
-2) Find the rest of the bugs in the CVS frmo the Perl Port
-3) Finish the SVN version:
-    a) tags aren't working at all
-    b) updates aren't working
-    c) permissions for running SVN over https AUTH still need working out
-4) Abstract the version system to a config param (unify the 2 dirs)
-5) Explain (and make easier) to people how to install the SUDO perms of the APACHE-running-CVS bits
+1) Finish porting the remote_call connection for remote access to the /projects/ dir and logs
+2) Explain (and make easier) to people how to install the SUDO perms of the APACHE-running-CVS bits
+3) Write more docs
