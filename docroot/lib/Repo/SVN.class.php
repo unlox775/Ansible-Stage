@@ -334,13 +334,15 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     public function get_head_rev( $file ) {
         $clog = $this->get_log($file);
         
-        $head_rev = null;  $error = '';
+        $head_rev = null;  $error = '';  $error_code = '';
         if ( preg_match('/^-------+\nr(\d+)\s/m', $clog, $m) ) {
             $head_rev = $m[1];
-        } else if ( preg_match('/nothing known about|no such directory/', $clog, $m) ) {
+        } else if ( preg_match('/is not under version control|no such directory/', $clog, $m) ) {
             $error = "Not in $this->display_name";
+            $error_code = 'not_exists';
         } else {
             $error = "malformed $this->command_name log";
+            $error_code = 'malformed';
         }
         
         return( array( $head_rev, $error) );
@@ -384,7 +386,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
 
     public function get_prev_rev( $file, $rev ) {
-
         $clog = $this->get_log($file);
 
         ///  Get a list of ALL entries...
@@ -392,16 +393,13 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         list($head_rev, $err) = $this->get_head_rev($file);
         list($first_rev, $err) = $this->get_first_rev($file);
         if ( ! $head_rev || ! $first_rev ) return null;
-        foreach ( $this->get_revs_in_diff($file, $first_rev, $head_rev) as $_ ) {
-            $entry = $this->get_log_entry( $clog, $_ );
-            if ( ! empty($entry) ) $entries[] = array($_, $entry);
-        } 
 
         ///  Loop through (Low to high)
         $prev_rev = null;
-        foreach ( $entries as $e ) {
-            if ( $e[0] >= $rev ) return $prev_rev;
-            $prev_rev = $e[0];
+        $diff_revs = $this->get_revs_in_diff($file, $first_rev, $head_rev);
+        foreach ( array_merge( array( $first_rev), $diff_revs ) as $i ) {
+            if ( $i >= $rev ) return $prev_rev;
+            $prev_rev = $i;
         }
         return $prev_rev;
     }

@@ -189,7 +189,7 @@ function index_page() {
         $project = new Ansible__Project( $project_name );
 
         ###  Get more info from ls
-        $ls = ( is_dir($SYSTEM_PROJECT_BASE)) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
+        $ls = is_dir($SYSTEM_PROJECT_BASE) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
 #        $stat = (is_dir($SYSTEM_PROJECT_BASE)) ? ($project->get_stat()) : ();
         $stat = $project->get_stat();
 
@@ -205,7 +205,8 @@ function index_page() {
                                'aff_file_count'      => count($project->get_affected_files()),
                                );
         
-        $projects[ $project_info['mod_time'] ] = $project_info;
+        //  Make array key unique, but sortable
+        $projects[ sprintf("%011d",$project_info['mod_time']) .'_'.$project_name ] = $project_info;
     }
 
     ksort($projects, SORT_NUMERIC);  $projects = array_reverse( $projects );
@@ -397,7 +398,7 @@ ENDHTML;
                     }
                     else { $cur_vers = "$status, $cur_rev"; }
                 } else {
-                    $cur_vers = "<i>". $error ."</i><!--". $repo->get_status($file) ."-->";
+                    $cur_vers = "<div title=\"". htmlentities($repo->get_status($file)) ."\"><i>". $error ."</i></div>";
                 }
             }
 
@@ -462,7 +463,7 @@ DELAY
             } else if ( $error_code == 'not_exists' ) {
                 $head_vers = "<i>". $error ."</i>";
             } else {
-                $head_vers = "<i>". $error ."</i><!--". $repo->get_log($file) ."-->";
+                $head_vers = "<div title=\"". htmlentities($repo->get_log($file)) ."\"><i>". $error ."</i></div>";
             }
 
             return $head_vers;
