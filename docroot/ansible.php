@@ -137,6 +137,36 @@ else if ( $_REQUEST['action'] == 'diff' ) {
     echo style_sheet();
     diff_page();
 }
+else if ( $_REQUEST['action'] == 'archive_project' ) {
+    if ( ! empty( $_REQUEST['pname'] ) ) {
+        if ( preg_match('/[^\w\_\-]/', $_REQUEST['pname']) ) 
+            return trigger_error("Please don't hack...", E_USER_ERROR);
+        $project = new Ansible__Project( $_REQUEST['pname'] );
+        if ( $project->exists() && ! $project->archived() ) {
+            $user = ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous';
+            $project->archive($user);
+        }
+    }
+    header("Location: ?");
+    exit;
+}
+else if ( $_REQUEST['action'] == 'unarchive_project' ) {
+    if ( ! empty( $_REQUEST['pname'] ) ) {
+        if ( preg_match('/[^\w\_\-]/', $_REQUEST['pname']) ) 
+            return trigger_error("Please don't hack...", E_USER_ERROR);
+        $project = new Ansible__Project( $_REQUEST['pname'], true );
+        if ( $project->exists() && $project->archived() ) {
+            $user = ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous';
+            $project->unarchive($user);
+        }
+    }
+    header("Location: ?action=archived");
+    exit;
+}
+else if ( $_REQUEST['action'] == 'archived' ) {
+    echo style_sheet();
+    index_page('archived');
+}
 else if ( $_REQUEST['action'] == 'remote_call' ) {
 ###      $remote_call = $_REQUEST['remote_call'];
 ###      $params = $_REQUEST['params'];
@@ -166,11 +196,11 @@ report_timers();
 #########################
 ###  Hacked Page handlers (use Template Toolkit asap!)
 
-function index_page() {
+function index_page($category = 'active') {
     global $SYSTEM_PROJECT_BASE, $repo;
 
     ###  List of projects
-    echo "<h3>List of Projects</h3>\n";
+    echo "<h3>List of ". ( $category == 'archived' ? 'Archived' : '' ) ." Projects</h3>\n";
     print( "<table width=100%>\n"
             . "<tr>"
             . "<th width=30% align=left>Name</th>"
@@ -183,13 +213,14 @@ function index_page() {
             );
 
     $projects = array();
-    foreach ( get_projects() as $project_name ) {
+    $category_list = $category == 'archived' ? get_archived_projects() : get_projects();
+    foreach ( $category_list as $project_name ) {
         if ( empty( $project_name ) ) continue;
 
-        $project = new Ansible__Project( $project_name );
+        $project = new Ansible__Project( $project_name, ($category == 'archived') );
 
         ###  Get more info from ls
-        $ls = is_dir($SYSTEM_PROJECT_BASE) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
+        $ls = ( is_dir($SYSTEM_PROJECT_BASE)) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
 #        $stat = (is_dir($SYSTEM_PROJECT_BASE)) ? ($project->get_stat()) : ();
         $stat = $project->get_stat();
 
@@ -205,24 +236,39 @@ function index_page() {
                                'aff_file_count'      => count($project->get_affected_files()),
                                );
         
-        //  Make array key unique, but sortable
-        $projects[ sprintf("%011d",$project_info['mod_time']) .'_'.$project_name ] = $project_info;
+        $projects[ $project_info['mod_time'] ] = $project_info;
     }
 
     ksort($projects, SORT_NUMERIC);  $projects = array_reverse( $projects );
     foreach ( $projects as $project ) {
 #        echo "<tr><td></li>\n";
         print( "<tr>"
-               . "<td><a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">". $project['name'] ."</a></td>"
+               . "<td>"
+               . ( $category == 'archived'
+                   ? $project['name']
+                   : "<a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
+                   )
+               . "</td>"
                . "<td align=center>". $project['creator'] ."</td>"
                . "<td align=center>". $project['mod_time_display'] ."</td>"
                . "<td align=center>". $project['aff_file_count'] ."</td>"
                . "<td align=center>". $project['has_summary'] ."</td>"
-               . "<td><a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">View</a> | <a href=\"javascript:alert('Not supported yet...  Sorry.')\">Archive</a></td>"
+               . "<td>"
+               . ( $category == 'archived'
+                   ? "<a href=\"?action=unarchive_project&pname=". urlencode($project['name']) ."\">Un-Archive</a>"
+                   : "<a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">View</a> | <a href=\"?action=archive_project&pname=". urlencode($project['name']) ."\">Archive</a>"
+                   )
+               . "</td>"
                . "</tr>\n"
                );
     }
     echo "</table>\n";
+
+    if ( $category != 'archived' ) {
+        echo '<p>See list of <a href="?action=archived">Archived projects</p>';
+    } else  {
+        echo '<p>Back to <a href="?">Active projects list</p>';
+    }
 
     echo "</ul>\n\n";
 }
@@ -398,7 +444,7 @@ ENDHTML;
                     }
                     else { $cur_vers = "$status, $cur_rev"; }
                 } else {
-                    $cur_vers = "<div title=\"". htmlentities($repo->get_status($file)) ."\"><i>". $error ."</i></div>";
+                    $cur_vers = "<div title=\"". $repo->get_status($file) ."\"><i>". $error ."</i></div>";
                 }
             }
 
@@ -463,7 +509,7 @@ DELAY
             } else if ( $error_code == 'not_exists' ) {
                 $head_vers = "<i>". $error ."</i>";
             } else {
-                $head_vers = "<div title=\"". htmlentities($repo->get_log($file)) ."\"><i>". $error ."</i></div>";
+                $head_vers = "<div title=\"". $repo->get_log($file) ."\"><i>". $error ."</i></div>";
             }
 
             return $head_vers;
@@ -683,6 +729,13 @@ function get_projects() {
     $tmp = func_get_args();
     if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, $tmp );
     return explode("\n",`ls -1 $SYSTEM_PROJECT_BASE | grep -E -v '^(archive|logs|$PROJECTS_DIR_IGNORE_REGEXP)\$'`);
+}
+
+function get_archived_projects() {
+    global $SYSTEM_PROJECT_BASE, $PROJECTS_DIR_IGNORE_REGEXP;
+    $tmp = func_get_args();
+    if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, $tmp );
+    return explode("\n",`ls -1 $SYSTEM_PROJECT_BASE/archive | grep -E -v '^($PROJECTS_DIR_IGNORE_REGEXP)\$'`);
 }
 
 

@@ -25,6 +25,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         }
 
         ###  Prepare for a MASS HEAD update if updating to HEAD
+        $doing_indiv_dir_update = array();
         if ( $tag == 'HEAD' ) {
             $mass_head_update_files = array();
             foreach ( $project->get_affected_files() as $file ) {
@@ -55,8 +56,35 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
                 $rev = $sth->fetch(PDO::FETCH_NUM);
                 $sth->closeCursor();
-                if ( ! empty( $rev ) ) # I guess if there isn't a rev, we should REMOVE THE FILE?  Maybe later...
+                if ( ! empty( $rev ) ) { # I guess if there isn't a rev, we should REMOVE THE FILE?  Maybe later...
+
+                    $dir_test = $file;
+                    ###  Before we do Inidividual Tag updates on files the containing dirs must exist
+                    $dirs_to_update = array();
+                    while ( ! empty( $dir_test )
+                            && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
+                            && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
+                            && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
+                            ) {
+                        $dir = dirname($dir_test);
+                        $dirs_to_update[] = $dir;
+                        $doing_indiv_dir_update[$dir] = true;
+
+                        $dir_test = $dir; // iterate backwards
+                    }
+                    ///  Need to add in parent-first order
+                    ///    NOTE: we only need to do the parent one, because the in-between ones will be included
+                    if ( count( $dirs_to_update ) )
+                        $individual_file_rev_updates[] = array( array_pop($dirs_to_update), $rev[0] );
+                    
                     $individual_file_rev_updates[] = array( $file, $rev[0] );
+                } else {
+                    list($head_rev, $error) = $this->get_head_rev( $file );
+                    if ( empty( $error ) ) {
+                        $rev_before_head = $head_rev - 1;
+                        $individual_file_rev_updates[] = array( $file, $rev_before_head );
+                    }
+                }
             }
         }
 
@@ -334,15 +362,13 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     public function get_head_rev( $file ) {
         $clog = $this->get_log($file);
         
-        $head_rev = null;  $error = '';  $error_code = '';
+        $head_rev = null;  $error = '';
         if ( preg_match('/^-------+\nr(\d+)\s/m', $clog, $m) ) {
             $head_rev = $m[1];
         } else if ( preg_match('/is not under version control|no such directory/', $clog, $m) ) {
             $error = "Not in $this->display_name";
-            $error_code = 'not_exists';
         } else {
             $error = "malformed $this->command_name log";
-            $error_code = 'malformed';
         }
         
         return( array( $head_rev, $error) );
@@ -386,6 +412,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
 
     public function get_prev_rev( $file, $rev ) {
+
         $clog = $this->get_log($file);
 
         ///  Get a list of ALL entries...
@@ -393,13 +420,16 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         list($head_rev, $err) = $this->get_head_rev($file);
         list($first_rev, $err) = $this->get_first_rev($file);
         if ( ! $head_rev || ! $first_rev ) return null;
+        foreach ( $this->get_revs_in_diff($file, $first_rev, $head_rev) as $_ ) {
+            $entry = $this->get_log_entry( $clog, $_ );
+            if ( ! empty($entry) ) $entries[] = array($_, $entry);
+        } 
 
         ///  Loop through (Low to high)
         $prev_rev = null;
-        $diff_revs = $this->get_revs_in_diff($file, $first_rev, $head_rev);
-        foreach ( array_merge( array( $first_rev), $diff_revs ) as $i ) {
-            if ( $i >= $rev ) return $prev_rev;
-            $prev_rev = $i;
+        foreach ( $entries as $e ) {
+            if ( $e[0] >= $rev ) return $prev_rev;
+            $prev_rev = $e[0];
         }
         return $prev_rev;
     }
@@ -411,7 +441,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         if ( preg_match_all('/^-------+\nr(\d+)\s/m', $clog, $m, PREG_SET_ORDER) ) {
             $last_match = array_pop( $m );
             $first_rev = $last_match[1];
-        } else if ( preg_match('/nothing known about|no such directory/', $clog, $m) ) {
+        } else if ( preg_match('/is not under version control|no such directory/', $clog, $m) ) {
             $error = "Not in $this->display_name";
         } else {
             $error = "malformed $this->command_name log";
