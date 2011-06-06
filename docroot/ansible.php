@@ -79,7 +79,14 @@ else if ( $_REQUEST['action'] == 'update' ) {
     if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
 
-    ///  Run the action
+    ###  Set Group..
+    if ( ! empty( $_REQUEST['set_group'] ) ) {
+        if ( preg_match('/\W/', $_REQUEST['set_group']) ) 
+            return trigger_error("Please don't hack...", E_USER_ERROR);
+        $project->set_group($_REQUEST['set_group']);
+    }
+
+    ###  Run the action
     list( $cmd, $command_output ) = $repo->updateAction( $project, $tag );
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
@@ -107,6 +114,13 @@ else if ( $_REQUEST['action'] == 'tag' ) {
     }
     if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
         return trigger_error("Please don't hack...", E_USER_ERROR);
+
+    ###  Set Group..
+    if ( ! empty( $_REQUEST['set_group'] ) ) {
+        if ( preg_match('/\W/', $_REQUEST['set_group']) ) 
+            return trigger_error("Please don't hack...", E_USER_ERROR);
+        $project->set_group($_REQUEST['set_group']);
+    }
     
     ///  Run the action
     list( $cmd, $command_output ) = $repo->tagAction( $project, $tag );
@@ -199,18 +213,16 @@ report_timers();
 function index_page($category = 'active') {
     global $SYSTEM_PROJECT_BASE, $repo;
 
+    ###  Project Groups
+    $groups = array( '00_none'              => 'New Projects / In Development',
+                     '01_staging'           => 'Step 1 : Updated to Staging for Testing',
+                     '03_testing_done'      => 'Step 3 : Testing Done - Tagged as PROD_TEST',
+                     '04_prod_rollout_prep' => 'Step 4 : Production tagged as PROD_SAFE',
+                     '05_rolled_out'        => 'Step 5 : Rolled out to Production',
+                     );
+
     ###  List of projects
     echo "<h3>List of ". ( $category == 'archived' ? 'Archived' : '' ) ." Projects</h3>\n";
-    print( "<table width=100%>\n"
-            . "<tr>"
-            . "<th width=30% align=left>Name</th>"
-            . "<th align=center>Created by</th>"
-            . "<th align=center>Last Modified</th>"
-            . "<th align=center>Number of files</th>"
-            . "<th align=center>Summary File</th>"
-            . "<th align=left>Actions</th>"
-            . "</tr>\n"
-            );
 
     $projects = array();
     $category_list = $category == 'archived' ? get_archived_projects() : get_projects();
@@ -236,33 +248,48 @@ function index_page($category = 'active') {
                                'aff_file_count'      => count($project->get_affected_files()),
                                );
         
-        $projects[ $project_info['mod_time'] ] = $project_info;
+        //  Make array key unique, but sortable
+        $projects[ $project->get_group() ][ sprintf("%011d",$project_info['mod_time']) .'_'.$project_name ] = $project_info;
     }
 
-    ksort($projects, SORT_NUMERIC);  $projects = array_reverse( $projects );
-    foreach ( $projects as $project ) {
-#        echo "<tr><td></li>\n";
-        print( "<tr>"
-               . "<td>"
-               . ( $category == 'archived'
-                   ? $project['name']
-                   : "<a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
-                   )
-               . "</td>"
-               . "<td align=center>". $project['creator'] ."</td>"
-               . "<td align=center>". $project['mod_time_display'] ."</td>"
-               . "<td align=center>". $project['aff_file_count'] ."</td>"
-               . "<td align=center>". $project['has_summary'] ."</td>"
-               . "<td>"
-               . ( $category == 'archived'
-                   ? "<a href=\"?action=unarchive_project&pname=". urlencode($project['name']) ."\">Un-Archive</a>"
-                   : "<a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">View</a> | <a href=\"?action=archive_project&pname=". urlencode($project['name']) ."\">Archive</a>"
-                   )
-               . "</td>"
+    ksort($projects, SORT_NUMERIC);
+    foreach ( array_keys( $projects ) as $group ) {
+        ksort($projects[ $group ], SORT_NUMERIC);  $projects[ $group ] = array_reverse( $projects[ $group ] );
+        print( "<h2>". ( isset( $groups[$group] ) ? $groups[$group] : $group ) ."</h2>" 
+               . "<table width=100%>\n"
+               . "<tr>"
+               . "<th width=30% align=left>Name</th>"
+               . "<th align=center>Created by</th>"
+               . "<th align=center>Last Modified</th>"
+               . "<th align=center>Number of files</th>"
+               . "<th align=center>Summary File</th>"
+               . "<th align=left>Actions</th>"
                . "</tr>\n"
                );
+        foreach ( $projects[ $group ] as $project ) {
+#            echo "<tr><td></li>\n";
+            print( "<tr>"
+                   . "<td>"
+                   . ( $category == 'archived'
+                       ? $project['name']
+                       : "<a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
+                       )
+                   . "</td>"
+                   . "<td align=center>". $project['creator'] ."</td>"
+                   . "<td align=center>". $project['mod_time_display'] ."</td>"
+                   . "<td align=center>". $project['aff_file_count'] ."</td>"
+                   . "<td align=center>". $project['has_summary'] ."</td>"
+                   . "<td>"
+                   . ( $category == 'archived'
+                       ? "<a href=\"?action=unarchive_project&pname=". urlencode($project['name']) ."\">Un-Archive</a>"
+                       : "<a href=\"?action=view_project&pname=". urlencode($project['name']) ."\">View</a> | <a href=\"?action=archive_project&pname=". urlencode($project['name']) ."\">Archive</a>"
+                       )
+                   . "</td>"
+                   . "</tr>\n"
+                   );
+        }
+        echo "</table>\n";
     }
-    echo "</table>\n";
 
     if ( $category != 'archived' ) {
         echo '<p>See list of <a href="?action=archived">Archived projects</p>';
@@ -351,11 +378,11 @@ ENDHTML;
             $live_area_url = get_area_url('live');
             echo <<<ENDHTML
             <h3>Rollout Process - QA STAGING PHASE</h3>
-            <b>Step 1</b>: Once developer is ready, <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=Target')"   >Update to Target</a><br>
+            <b>Step 1</b>: Once developer is ready, <a href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=Target&set_group=01_staging')"   >Update to Target</a><br>
             <b>Step 2</b>: <i> -- Perform QA testing -- </i><br>
             &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2a</b>: For minor updates, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=Target')"   >Update to Target again</a><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_TEST')">Roll back to PROD_TEST</a><br>
-            <b>Step 3</b>: When everything checks out, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_TEST')"     >Tag as PROD_TEST</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_TEST&set_group=00_none')">Roll back to PROD_TEST</a><br>
+            <b>Step 3</b>: When everything checks out, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_TEST&set_group=03_testing_done')"     >Tag as PROD_TEST</a><br>
             <br>
             Then, <a href="$live_area_url">Switch to Live Production Area</a>
 ENDHTML;
@@ -382,11 +409,11 @@ ENDHTML;
             <h3>Rollout Process - LIVE PRODUCTION PHASE</h3>
             Check that in the "Current Status" column there are <b><u>no <b>"Locally Modified"</b> or <b>"Needs Merge"</b> statuses</u></b>!!
             <br>
-            <b>Step 4</b>: Set set a safe rollback point, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_SAFE')"     >Tag as PROD_SAFE</a><br>
-            <b>Step 5</b>: Then to roll it all out, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_TEST')">Update to PROD_TEST</a><br>
+            <b>Step 4</b>: Set set a safe rollback point, <a href="javascript: confirmAction('TAG',   '?action=tag&pname=$project->project_name&tag=PROD_SAFE&set_group=04_prod_rollout_prep')"     >Tag as PROD_SAFE</a><br>
+            <b>Step 5</b>: Then to roll it all out, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_TEST&set_group=05_rolled_out')">Update to PROD_TEST</a><br>
             <b>Step 6</b>: <i> -- Perform QA testing -- </i><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_SAFE')">Roll back to PROD_SAFE</a><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, <a href="javascript: confirmAction('TAG','?action=tag&pname=$project->project_name&tag=PROD_TEST')">Re-tag to PROD_TEST</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, <a      href="javascript: confirmAction('UPDATE','?action=update&pname=$project->project_name&tag=PROD_SAFE&set_group=03_testing_done')">Roll back to PROD_SAFE</a><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, <a href="javascript: confirmAction('TAG','?action=tag&pname=$project->project_name&tag=PROD_TEST&set_group=01_staging')">Re-tag to PROD_TEST</a><br>
             Then, go back to the <a href="$beta_area_url">QA Staging Area</a> and continue with <b>Step 1</b> or <b>Step 2</b>.
 ENDHTML;
         }
@@ -444,7 +471,7 @@ ENDHTML;
                     }
                     else { $cur_vers = "$status, $cur_rev"; }
                 } else {
-                    $cur_vers = "<div title=\"". $repo->get_status($file) ."\"><i>". $error ."</i></div>";
+                    $cur_vers = "<div title=\"". htmlentities( $repo->get_status($file)) ."\"><i>". $error ."</i></div>";
                 }
             }
 
@@ -509,7 +536,7 @@ DELAY
             } else if ( $error_code == 'not_exists' ) {
                 $head_vers = "<i>". $error ."</i>";
             } else {
-                $head_vers = "<div title=\"". $repo->get_log($file) ."\"><i>". $error ."</i></div>";
+                $head_vers = "<div title=\"". htmlentities( $repo->get_log($file) ) ."\"><i>". $error ."</i></div>";
             }
 
             return $head_vers;

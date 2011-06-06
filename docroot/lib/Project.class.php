@@ -22,6 +22,11 @@ class Ansible__Project {
         return $this->archived;
     }
 
+    public function get_group() {
+        $group = $this->get_file('.group');
+        return( empty( $group ) ? '00_none' : trim( $group) );
+    }
+
     public function get_ls() {
         global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
@@ -150,6 +155,25 @@ class Ansible__Project {
         print `echo '"'$time'","unarchived","'$user'"' > $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt`;
         print `cat $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt >> $SYSTEM_PROJECT_BASE/$this->project_name/archive.log`;
         print `rm -f $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt`;
+        return true;
+    }
+
+    public function set_group($group) {
+        global $SYSTEM_PROJECT_BASE;
+        if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
+            return trigger_error("Please don't hack...", E_USER_ERROR);
+
+        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+
+        if ( preg_match('/\W/', $group) )
+            return trigger_error("Please don't hack...", E_USER_ERROR);
+
+        $archived = $this->archived ? 'archive/' : '';
+        if ( $group == '00_none' ) {
+            print `rm -f       $SYSTEM_PROJECT_BASE/$archived$this->project_name/.group`;
+        } else {
+            print `echo $group > $SYSTEM_PROJECT_BASE/$archived$this->project_name/.group`;
+        }
         return true;
     }
 
