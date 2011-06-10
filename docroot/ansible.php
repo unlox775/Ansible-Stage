@@ -679,9 +679,9 @@ function part_log_page() {
     }
 
     ###  Turn the revision labels into links
-    foreach ( $entries as $entry ) {
-        $GLOBALS['part_log_page_tmp'] = array($file, $entry[0], undef, '<xmp>', "<\/xmp>");
-        $entry[1] = preg_replace_callback('/^((r[\d\.]+)\s+)/','part_log_page_preplace_callback', $entry[1]);
+    foreach ( array_keys( $entries ) as $i ) {
+        $GLOBALS['part_log_page_tmp'] = array($file, $entries[$i][0], undef, '<xmp>', '</xmp>');
+        $entries[$i][1] = preg_replace_callback('/(\n(r([\d]+)[^\n]+\n))/','part_log_page_preplace_callback', $entries[$i][1]);
     }
 
     $tmp = array();  foreach ( $entries as $entry ) $tmp[] = $entry[1];
@@ -695,6 +695,7 @@ function part_log_page_preplace_callback($m) {
 function revision_link( $file, $rev, $str, $project_name, $s_esc, $e_esc, $whole_match) {
     global $repo;
     list($first_rev, $err) = $repo->get_first_rev($file);
+    
     if ( $first_rev && $rev == $first_rev ) return $whole_match;
     if ( empty($s_esc) ) $s_esc = '';
     if ( empty($e_esc) ) $e_esc = '';

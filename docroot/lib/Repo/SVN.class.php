@@ -92,10 +92,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         if ( ! empty($mass_head_update_files) ) {
             $head_update_cmd = "svn update ";
             foreach ( $mass_head_update_files as $file ) $head_update_cmd .= ' '. escapeshellcmd($file);
-            if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
+            START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $this->log_repo_action($head_update_cmd);
             $command_output .= shell_exec("$REPO_CMD_PREFIX$head_update_cmd 2>&1 | cat -");
-            if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
+            END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
         }
 
@@ -105,10 +105,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 list($file, $rev) = $update;
 
                 $indiv_update_cmd = "svn update -r$rev ". escapeshellcmd($file);
-                if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
+                START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                 $this->log_repo_action($indiv_update_cmd);
                 $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
-                if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
+                END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                 $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
             }
         }
@@ -179,7 +179,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         if ( ! $this->repo_cache['log'][$file] ) {
             $parent_dir = dirname($file);
             if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) {
-                if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
+                START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
     
     
                 
@@ -202,7 +202,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     #            bug(`${REPO_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`); exit;
                 $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
                 $this->repo_cache['log'][$file] = `${REPO_CMD_PREFIX}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
-                if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
+                END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
                 $this->repo_cache['log'][$file] = "svn [status aborted]: no such directory `$parent_dir'";
@@ -233,10 +233,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             }
     
             $round_checkoff = array_flip($round);
-            if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
+            START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $all_entries = `${REPO_CMD_PREFIX}svn log $round_str 2>&1 | cat`;
     #        bug substr($all_entries, -200);
-            if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
+            END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
                 if ( preg_match('/^\s*$/s', $entry, $m) ) continue;
     
@@ -270,9 +270,9 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         if ( ! $this->repo_cache['status'][$file] ) {
             $parent_dir = dirname($file);
             if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) {
-                if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
+                START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                 $this->repo_cache['status'][$file] = `${REPO_CMD_PREFIX}svn -v status "$file" 2>&1 | cat`;
-                if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
+                END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
                 $this->repo_cache['status'][$file] = "svn [status aborted]: no such directory `$parent_dir'";;
@@ -303,10 +303,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             }
     
             $round_checkoff = array_flip( $round );
-            if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
+            START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $all_entries = `${REPO_CMD_PREFIX}svn status $round_str 2>&1 | cat`;
     #        bug substr($all_entries, -200);
-            if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
+            END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
                 if ( preg_match('/^\s*$/s', $entry, $m) ) continue;
     
@@ -353,8 +353,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
         $revs = array();
 
+        $clog = $this->get_log($file);
+
         if ( $from >= $to ) return array();
-        $revs = array();  foreach ( range( ($from+1), $to ) as $_ )  { $entry = $this->get_log_entry( $this->get_log($file), $_);  if ( ! empty($entry) ) $revs[] = $_; }
+        $all_revs = $this->get_all_log_revs($clog);
+        $revs = array();  foreach ( range( ($from+1), $to ) as $_ ) { if ( in_array($_, $all_revs) ) $revs[] = $_; }
 
         return $revs;
     }
@@ -386,7 +389,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             if ( preg_match('/^\w?\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
                 $cur_rev = $m[1];
             } else {
-                $error = "malformed $repo->command_name status";
+                $error = "malformed $this->command_name status";
                 $error_code = 'malformed';
                 $is_modified = true;
             }
@@ -395,7 +398,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             else if ( $status == 'Needs Merge' )                 $state_code = 'needs_merge';
             else if ( $status == 'File had conflicts on merge' ) $state_code = 'conflict';
         } else {
-            $error = "malformed cvs status";
+            $error = "malformed $this->command_name status";
             $error_code = 'malformed';
             $is_modified = true;
         }
@@ -436,7 +439,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
     public function get_first_rev( $file ) {
         $clog = $this->get_log($file);
-        
+       
         $first_rev = null;  $error = '';
         if ( preg_match_all('/^-------+\nr(\d+)\s/m', $clog, $m, PREG_SET_ORDER) ) {
             $last_match = array_pop( $m );
@@ -448,6 +451,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         }
         
         return( array( $first_rev, $error) );
+    }
+
+    public function get_all_log_revs( $clog ) {
+        preg_match_all('/---------+\nr(\d+)\s*\|.+?(?=---------+|$)/s', $clog, $m, PREG_PATTERN_ORDER);
+        return( empty( $m ) ? array() : $m[1] );
     }
 
     public function get_log_entry( $clog, $rev ) {
