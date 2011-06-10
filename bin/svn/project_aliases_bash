@@ -53,8 +53,12 @@ alias    psum=project_summary
 # export EDITOR=emacs
 
 ###  ###  Operate on affected files
-###  alias           aff_cat='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; cat $CUR_PROJECT_DIR/affected_files.txt'
-###  alias          aff_stat='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; svn status           `cat $CUR_PROJECT_DIR/affected_files.txt`'
-###  alias          aff_diff='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; svn diff             `cat $CUR_PROJECT_DIR/affected_files.txt`'
-###  alias           aff_log='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; cat `cat $CUR_PROJECT_DIR/affected_files.txt` | perl -pe 's/\n/\0/' | xargs -0 -n1 svn log --limit 5 | less'
+###  alias  mod_file_list='svn status 2>&1 | perl -pe '\''(s/^[AMC] //   && s/\s?\n$//s) && ('\'\\\!\''/CVS|mod_stuff.tgz/) && ('\'\\\!\'' -d) && ($_ = " ".$_) || ($_ = "");'\'''
+###  alias modq_file_list='svn status 2>&1 | perl -pe '\''(s/^[AMC\?] // && s/\s?\n$//s) && ('\'\\\!\''/CVS|mod_stuff.tgz/) && ('\'\\\!\'' -d) && ($_ = " ".$_) || ($_ = "");'\'''
+###  alias mod_reg='preg `mod_file_list`'
+###  alias      pcd='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; cd $CUR_PROJECT_DIR'
+###  alias  aff_cat='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; cat $CUR_PROJECT_DIR/affected_files.txt'
+###  alias aff_stat='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; svn status           `cat $CUR_PROJECT_DIR/affected_files.txt`'
+###  alias aff_diff='cd $SYSTEM_SVN_BASE; export CUR_PROJECT_DIR=$SYSTEM_PROJECT_BASE/`cat ../.current_project`; svn diff             `cat $CUR_PROJECT_DIR/affected_files.txt`'
+###  alias  aff_log='cd $SYSTEM_SVN_BASE;                           aff_cat | perl -pe '\''$_ .= `svn log --limit 5 $_`'\'' | less'
 
