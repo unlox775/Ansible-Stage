@@ -519,14 +519,14 @@ DELAY
 ));
 
         ###  Get HEAD Version
-        $head_vers = delayed_load_span(array($file,$cur_rev,$project), create_function('$file,$cur_rev,$project',now_doc('DELAY')/*
+        $head_vers = delayed_load_span(array($file,$cur_rev,$project,$file_tags), create_function('$file,$cur_rev,$project,$file_tags',now_doc('DELAY')/*
             global $repo;
             $clog = $repo->get_log($file, 10);
 
             list($head_rev, $error, $error_code) = $repo->get_head_rev($file);
             if ( empty($error) ) {
                 if ( $head_rev != $cur_rev
-                     && ( ! $file_tags[$file]
+                     && ( empty( $file_tags[$file] )
                           || $file_tags[$file] == $cur_rev
                           )
                      ) {
@@ -553,8 +553,9 @@ DELAY
             if ( empty($error) ) {
                 ###  Set Target version if it's there
                 list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-                if ( $used_file_tags && $target_rev != $cur_rev ) {
-                    $target_vers = "<b><font color=red>". $target_rev ."</font></b>";
+                if ( $used_file_tags ) {
+                    if ( $target_rev != $cur_rev ) { $target_vers = "<b><font color=red>". $target_rev ."</font></b>"; }
+                    else {                           $target_vers = "<b>".                 $target_rev        ."</b>"; }
                 }
                 else { $target_vers = '-&gt;'; }
             }
