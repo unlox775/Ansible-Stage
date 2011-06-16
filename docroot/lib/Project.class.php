@@ -8,6 +8,7 @@ class Ansible__Project {
     public $archived = false;
     protected $affected_file_cache = null;
     protected $file_tags_cache = null;
+    protected $mod_time_bak = null;
 
     public function __construct($project_name, $archived = false) {
         $this->project_name = $project_name;
@@ -111,6 +112,12 @@ class Ansible__Project {
         return( array( $target_rev, $used_file_tags ) );
     }
 
+    public function backup_project_mod_time() {
+        $stat = $this->get_stat();
+        $this->mod_time_bak = $stat ? $stat[9] : null;
+    }
+
+
     #############################
     ###  Write-Access Actions 
 
@@ -128,6 +135,7 @@ class Ansible__Project {
         }
 
         ///  Move to Archive Dir
+        $this->backup_project_mod_time();
         print `mv $SYSTEM_PROJECT_BASE/$this->project_name $SYSTEM_PROJECT_BASE/archive/$this->project_name`;
         ///  Log
         if ( empty($time)        ) $time = time();
@@ -135,6 +143,8 @@ class Ansible__Project {
         $time = date('Y-m-d H:i:s', $time);
         print `echo '"'$time'","archived","'$user'"' > $SYSTEM_PROJECT_BASE/archive/$this->project_name/archived.txt`;
         print `cat $SYSTEM_PROJECT_BASE/archive/$this->project_name/archived.txt >> $SYSTEM_PROJECT_BASE/archive/$this->project_name/archive.log`;
+        $this->archived = true;
+        $this->restore_project_mod_time();
         return true;
     }
 
@@ -147,6 +157,7 @@ class Ansible__Project {
         if ( ! $this->archived() ) return true;
 
         ///  Move out of the Archive Dir
+        $this->backup_project_mod_time();
         print `mv $SYSTEM_PROJECT_BASE/archive/$this->project_name $SYSTEM_PROJECT_BASE/$this->project_name`;
         ///  Log
         if ( empty($time)        ) $time = time();
@@ -155,6 +166,8 @@ class Ansible__Project {
         print `echo '"'$time'","unarchived","'$user'"' > $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt`;
         print `cat $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt >> $SYSTEM_PROJECT_BASE/$this->project_name/archive.log`;
         print `rm -f $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt`;
+        $this->archived = false;
+        $this->restore_project_mod_time();
         return true;
     }
 
@@ -168,12 +181,31 @@ class Ansible__Project {
         if ( preg_match('/\W/', $group) )
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
+        $this->backup_project_mod_time();
         $archived = $this->archived ? 'archive/' : '';
         if ( $group == '00_none' ) {
             print `rm -f       $SYSTEM_PROJECT_BASE/$archived$this->project_name/.group`;
         } else {
             print `echo $group > $SYSTEM_PROJECT_BASE/$archived$this->project_name/.group`;
         }
+        $this->restore_project_mod_time();
+        return true;
+    }
+
+    public function restore_project_mod_time() {
+        global $SYSTEM_PROJECT_BASE;
+
+        if ( empty( $this->mod_time_bak ) ) return false;
+
+        if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
+            return trigger_error("Please don't hack...", E_USER_ERROR);
+
+        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+        
+        ///  Restore to the backup
+        $archived = $this->archived ? 'archive/' : '';
+        touch("$SYSTEM_PROJECT_BASE/$archived$this->project_name", $this->mod_time_bak);
+        
         return true;
     }
 

@@ -10,7 +10,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     #########################
     ###  Action Methods
 
-    public function updateAction($project, $tag) {
+    public function updateAction($project, $tag, $user) {
         global $REPO_CMD_PREFIX;
 
         $individual_file_rev_updates = array();
@@ -93,7 +93,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             $head_update_cmd = "svn update ";
             foreach ( $mass_head_update_files as $file ) $head_update_cmd .= ' '. escapeshellcmd($file);
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-            $this->log_repo_action($head_update_cmd);
+            $this->log_repo_action($head_update_cmd, $project, $user);
             $command_output .= shell_exec("$REPO_CMD_PREFIX$head_update_cmd 2>&1 | cat -");
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
@@ -106,7 +106,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
                 $indiv_update_cmd = "svn update -r$rev ". escapeshellcmd($file);
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-                $this->log_repo_action($indiv_update_cmd);
+                $this->log_repo_action($indiv_update_cmd, $project, $user);
                 $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                 $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
@@ -118,7 +118,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         return( array($cmd, $command_output) );
     }
 
-    public function tagAction($project, $tag) {
+    public function tagAction($project, $tag, $user) {
         global $REPO_CMD_PREFIX;
 
         ###  Look and update tags
@@ -141,7 +141,12 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
                 ###  Add to Command output whether we really changed the tag or not
                 if ( ! empty( $old_rev ) && $old_rev[0] != $cur_rev ) {
-                    $command_output .= "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
+                    $command_output .=          "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
+                    $this->log_repo_action("TAG: Moved $tag on $file from ". $old_rev[0] . " to $cur_rev", $project, $user);
+                }
+                else {
+                    $command_output .=          "Preserved $tag on $file at ". $old_rev[0] ."\n";
+                    $this->log_repo_action("TAG: Preserved $tag on $file at ". $old_rev[0], $project, $user);
                 }
             }
             ###  If it doesn't exist, we need to remove the tag...
@@ -156,7 +161,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
                 ###  Add to Command output whether we really changed the tag or not
                 if ( ! empty( $old_rev ) ) {
-                    $command_output .= "Rmoved $tag on $file\n";
+                    $command_output .=          "Removed $tag on $file\n";
+                    $this->log_repo_action("TAG: Removed $tag on $file", $project, $user);
                 }
             }
         }
@@ -391,10 +397,9 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             } else {
                 $error = "malformed $this->command_name status";
                 $error_code = 'malformed';
-                $is_modified = true;
             }
             //  States (Should be ding this by letter.... TODO)
-            if      ( $status == 'Locally Modified' )            $state_code = 'locally_modified';
+            if      ( $status == 'Locally Modified' )          { $state_code = 'locally_modified'; $is_modified = true; }
             else if ( $status == 'Needs Merge' )                 $state_code = 'needs_merge';
             else if ( $status == 'File had conflicts on merge' ) $state_code = 'conflict';
         } else {

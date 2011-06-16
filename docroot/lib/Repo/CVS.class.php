@@ -10,7 +10,7 @@ class Ansible__Repo__CVS extends Ansible__Repo {
     #########################
     ###  Action Methods
 
-    public function updateAction($project, $tag) {
+    public function updateAction($project, $tag, $user) {
         global $REPO_CMD_PREFIX;
 
 
@@ -59,7 +59,7 @@ class Ansible__Repo__CVS extends Ansible__Repo {
         if ( $do_update ) {
             $update_cmd = "cvs ". join(' ', $update_cmd);
             if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
-            $this->log_repo_action($update_cmd);
+            $this->log_repo_action($update_cmd, $project, $user);
             $command_output .= `$REPO_CMD_PREFIX$update_cmd 2>&1 | cat -`;
             if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $update_cmd;
@@ -69,7 +69,7 @@ class Ansible__Repo__CVS extends Ansible__Repo {
         if ( $do_checkout ) {
             $checkout_cmd = "cvs ". join(' ', $checkout_cmd);
             if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
-            $this->log_repo_action($checkout_cmd);
+            $this->log_repo_action($checkout_cmd, $project, $user);
             $command_output .= `$REPO_CMD_PREFIX_4CO$checkout_cmd 2>&1 | cat -`;
             if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $checkout_cmd;
@@ -81,7 +81,7 @@ class Ansible__Repo__CVS extends Ansible__Repo {
                 $tag_cmd = array_merge( array('update', '-r' ), array($file_tags[$file], '"'. $file .'"') );
                 $tag_cmd = "cvs ". join(' ', $tag_cmd);
                 if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
-                $this->log_repo_action($tag_cmd);
+                $this->log_repo_action($tag_cmd, $project, $user);
                 $command_output .= "\n--\n". `$REPO_CMD_PREFIX$tag_cmd 2>&1 | cat -`;
                 if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
                 $cmd .= ( strlen($cmd) ? ' ; ' : ''). $tag_cmd;
@@ -93,7 +93,7 @@ class Ansible__Repo__CVS extends Ansible__Repo {
         return( array($cmd, $command_output) );
     }
 
-    public function tagAction($project, $tag) {
+    public function tagAction($project, $tag, $user) {
         global $REPO_CMD_PREFIX;
 
 
@@ -123,7 +123,7 @@ class Ansible__Repo__CVS extends Ansible__Repo {
         if ( $do_tag ) {
             $tag_cmd = "cvs ". join(' ', $tag_cmd);
             if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
-            $this->log_repo_action($tag_cmd);
+            $this->log_repo_action($tag_cmd, $project, $user);
             $command_output .= `$REPO_CMD_PREFIX$tag_cmd 2>&1 | cat -`;
             if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $tag_cmd;
@@ -133,7 +133,7 @@ class Ansible__Repo__CVS extends Ansible__Repo {
         if ( $do_remove_tag ) {
             $remove_tag_cmd = "cvs ". join(' ', $remove_tag_cmd);
             if ( PROJECT_PROJECT_TIMERS ) START_TIMER('REPO_CMD');
-            $this->log_repo_action($remove_tag_cmd);
+            $this->log_repo_action($remove_tag_cmd, $project, $user);
             $command_output .= `$REPO_CMD_PREFIX$remove_tag_cmd 2>&1 | cat -`;
             if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $remove_tag_cmd;

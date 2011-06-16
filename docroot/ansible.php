@@ -87,7 +87,7 @@ else if ( $_REQUEST['action'] == 'update' ) {
     }
 
     ###  Run the action
-    list( $cmd, $command_output ) = $repo->updateAction( $project, $tag );
+    list( $cmd, $command_output ) = $repo->updateAction( $project, $tag, ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
     $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9))) ."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)));
@@ -123,7 +123,7 @@ else if ( $_REQUEST['action'] == 'tag' ) {
     }
     
     ///  Run the action
-    list( $cmd, $command_output ) = $repo->tagAction( $project, $tag );
+    list( $cmd, $command_output ) = $repo->tagAction( $project, $tag, ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
     $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9))) ."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)));
@@ -150,6 +150,10 @@ else if ( $_REQUEST['action'] == 'full_log' ) {
 else if ( $_REQUEST['action'] == 'diff' ) {
     echo style_sheet();
     diff_page();
+}
+else if ( $_REQUEST['action'] == 'repo_admin' ) {
+    echo style_sheet();
+    repo_admin_page();
 }
 else if ( $_REQUEST['action'] == 'archive_project' ) {
     if ( ! empty( $_REQUEST['pname'] ) ) {
@@ -634,7 +638,7 @@ DELAY
     ###    DISABLE Updating until they are fixed
     if ( $locally_modified ) {
         echo <<<ENDHTML
-<script>
+<script type="text/javascript">
 disable_actions = 1;
 </script>
 ENDHTML;
@@ -891,7 +895,7 @@ ENDSTYLE;
 
     ###  HACK, add JavaScript...
     $ret .= <<<ENDSCRIPT
-<script>
+<script type="text/javascript">
 var disable_actions = 0;
 
 function confirmAction(which,newLocation) {
@@ -918,7 +922,7 @@ function env_header() {
 
     ###  A line of status for sandbox location
     $ret = "<table width=\"100%\" cellspacing=0 cellpadding=0 border=0><tr><td><div style=\"font-size:70%\">";
-    $ret .= "<b>Go to:</b> <a href=\"?\">Project List</a>\n";
+    $ret .= "<b>Go to:</b> <a href=\"?\">Project List</a> | <a href=\"?action=repo_admin\">Repo Admin</a>\n";
     $ret .= "<br><b>Current Sandbox Root</b>: ". ( $GLOBALS['OBSCURE_SANDBOX_ROOT'] ? '... '. substr( $_SERVER['PROJECT_REPO_BASE'], -30) : $_SERVER['PROJECT_REPO_BASE'] );
 
     $ret .= "</div></td><td align=right><div style=\"font-size:70%\">";
