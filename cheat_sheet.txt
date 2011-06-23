@@ -11,7 +11,7 @@ pcd                       - cd to project dir
 
 preg_mod      - preg all files that are modified
                 (runs svn status for you)
-aff_ci        - cd Repo root, svn diff proj. files
+aff_ci        - cd Repo root, svn commit proj. files
 aff_diff      - cd Repo root, svn diff proj. files
 aff_stat      - cd Repo root, svn status proj files
 aff_log       - cd Repo root, svn log --limit 5
