@@ -6,7 +6,7 @@ preg  file_1 file_2 ...   - add a file to project
 paff                      - VIM affected_files.txt
 psum                      - VIM summary.txt
 plist                     - list all projects
-project                   - echo out u r on
+project                   - echo project u r on
 pcd                       - cd to project dir
 
 preg_mod      - preg all files that are modified
