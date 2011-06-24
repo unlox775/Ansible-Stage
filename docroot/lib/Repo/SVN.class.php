@@ -144,6 +144,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                     $command_output .=          "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
                     $this->log_repo_action("TAG: Moved $tag on $file from ". $old_rev[0] . " to $cur_rev", $project, $user);
                 }
+                else if ( empty( $old_rev ) ) {
+                    $command_output .=          "Set $tag on $file to ". $cur_rev ."\n";
+                    $this->log_repo_action("TAG: Set $tag on $file to ". $cur_rev, $project, $user);
+                }
                 else {
                     $command_output .=          "Preserved $tag on $file at ". $old_rev[0] ."\n";
                     $this->log_repo_action("TAG: Preserved $tag on $file at ". $old_rev[0], $project, $user);
@@ -468,4 +472,321 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         return $m[0];
     }
 
+
+    #########################
+    ###  Repo-wide actions
+    
+    public function get_ls($dir = '') {
+        $full_dir_path = $_SERVER['PROJECT_REPO_BASE'] .'/'. $dir . '/.';
+        $all_files = array();  foreach ( scandir($full_dir_path) as $file ) if ( $file != '.' && $file != '..' && $file != '.svn' ) $all_files[] = $file;
+        return $all_files;
+    }
+    
+    public function get_dir_status($dir = '') {
+        global $REPO_CMD_PREFIX;
+        ///  If it is a file, then fall back to get_status()
+        if ( file_exists( $_SERVER['PROJECT_REPO_BASE'] .'/'. $dir ) )
+            return $this->get_status( $dir );
+
+        $full_dir_path = $_SERVER['PROJECT_REPO_BASE'] .'/'. $dir;
+
+        $cache_key = ( strlen( $dir ) == 0 ? '*ROOTDIR*' : $dir ); 
+        ###  If not cached, get it and cache
+        if ( ! $this->repo_cache['dir_status'][$cache_key] ) {
+            $parent_dir = dirname($dir);
+            if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) {
+                START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                $this->repo_cache['dir_status'][$cache_key] = `${REPO_CMD_PREFIX}svn -v status "$dir" 2>&1 | cat`;
+                END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+            }
+            else {
+                $this->repo_cache['dir_status'][$cache_key] = "svn [status aborted]: no such directory `$parent_dir'";;
+            }
+        }
+    
+        return $this->repo_cache['dir_status'][$cache_key];
+    }
+
+    public function analyze_dir_status($dir = '') {
+        $report = array( 'has_modified' => false,
+                        );
+        $status = $this->get_dir_status($dir);
+        foreach ( preg_split('/\n/', $status ) as $line ) {
+            if ( preg_match('/^\s*M/', $line) ) $report['has_modified'] = true;
+            if ( preg_match('/^\s*C/', $line) ) $report['has_conflicts'] = true;
+        }
+        return $report;
+    }
+
+    public function diff_dir_from_tag($tag, $dir = '') {
+        $report = array( 'files_no_tag'       => 0,
+                         'files_behind_tag'   => 0,
+                         'files_ahead_of_tag' => 0,
+                         'files_on_tag'       => 0,
+                         'files_unknown'      => 0,
+                        );
+        $status = $this->get_dir_status($dir);
+        foreach ( preg_split('/\n/', $status ) as $line ) {
+            if ( preg_match('/^\s*[A-Z\?]?\s*\d+\s+(\d+)\s+\S+\s+(\S.*)$/', $line, $m) ) {
+                $cur_rev = $m[1];
+                $file = rtrim($m[2],"\n\r");
+
+                ###  Skip dirs in SVN (for now)...
+                if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
+
+                ###  See what the tag is...
+                $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+                $tag_rev = $sth->fetch(PDO::FETCH_NUM);
+                $sth->closeCursor();
+
+                ###  Mark the group
+                if ( empty( $tag_rev ) )        { $report['files_no_tag'      ]++; continue; }
+                else $tag_rev = $tag_rev[0];
+                if      ( $cur_rev < $tag_rev ) $report['files_behind_tag'  ]++;
+                else if ( $cur_rev > $tag_rev ) $report['files_ahead_of_tag']++;
+                else if ( $cur_rev = $tag_rev ) $report['files_on_tag'      ]++;
+            }
+            else if ( preg_match('/^\s*[\?]?\s+(\S.*)$/', $line, $m) ) {
+                $report['files_unknown']++;
+            }
+            else if ( ! empty( $line ) ) {
+                bug("SVN status line didn't match to extract rev for tag diff! (/^\s*[A-Z\?]?\s*\d+\s+(\d+)\s+\S+\s+(\S.*)$/ nor /^\s*[\?]?\s+(\S.*)$/)", $status, $line);
+            }
+        }
+        return $report;
+    }
+
+    public function tagEntireRepoAction($tag, $user) {
+        global $REPO_CMD_PREFIX;
+
+        ###  Start out by updating all rows in the tag table as mass_edit=1
+        ###    as we delete and update, the ones that have tags will be set back to 0
+        $rv = dbh_do_bind("UPDATE file_tag SET mass_edit=1 AND tag=?", $tag);
+
+        $command_output = '';
+
+        $status = $this->get_dir_status();
+        foreach ( preg_split('/\n/', $status ) as $line ) {
+            if ( preg_match('/^\s*[A-Z]?\s*\d+\s+(\d+)\s+\S+\s+(\S.*)$/', $line, $m) ) {
+                $cur_rev = $m[1];
+                $file = rtrim($m[2],"\n\r");
+
+                ###  Skip dirs in SVN (for now)...
+                if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
+
+                ###  See what the tag is...
+                $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+                $old_rev = $sth->fetch(PDO::FETCH_NUM);
+                $sth->closeCursor();
+
+                ###  Update the Tag DB for this file...
+                $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+                $rv = dbh_do_bind("INSERT INTO file_tag ( file,tag,revision ) VALUES (?,?,?)", $file, $tag, $cur_rev);
+
+                ###  Add to Command output whether we really changed the tag or not
+                if ( ! empty( $old_rev ) && $old_rev[0] != $cur_rev ) {
+                    $command_output .=          "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
+                    $this->log_repo_action("TAG: Moved $tag on $file from ". $old_rev[0] . " to $cur_rev", 'entire_repo', $user);
+                }
+                else if ( empty( $old_rev ) ) {
+                    $command_output .=          "Set $tag on $file to ". $cur_rev ."\n";
+                    $this->log_repo_action("TAG: Set $tag on $file to ". $cur_rev, 'entire_repo', $user);
+                }
+                else {
+                    $command_output .=          "Preserved $tag on $file at ". $old_rev[0] ."\n";
+                    $this->log_repo_action("TAG: Preserved $tag on $file at ". $old_rev[0], 'entire_repo', $user);
+                }
+            }
+        }
+
+        ###  The rows the mass_edit still need to be Un-tagged...
+        ###  See what the tag was before...
+        $sth = dbh_query_bind("SELECT file FROM file_tag WHERE mass_edit=1 AND tag=?", $tag);
+        while (list( $file ) = $sth->fetch(PDO::FETCH_NUM) ) {
+            $command_output .=          "Removed $tag on $file\n";
+            $this->log_repo_action("TAG: Removed $tag on $file", 'entire_repo', $user);
+        }
+        $sth->closeCursor();
+
+        $rv = dbh_do_bind("DELETE FROM file_tag WHERE mass_edit=1 AND tag=?", $tag);
+
+        $cmd = "TAG entire repo: $tag";
+
+        if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
+
+        return( array($cmd, $command_output) );
+    }
+
+
+    public function updateEntireRepoAction($tag, $user) {
+        global $REPO_CMD_PREFIX;
+
+        $cmd = '';  $command_output = '';
+
+        ###  Prepare for a MASS HEAD update if updating to HEAD
+        $doing_indiv_dir_update = array();
+        if ( $tag == 'HEAD' ) {
+            $head_update_cmd = "svn update";
+            START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+            $this->log_repo_action($head_update_cmd, 'entire_repo', $user);
+            $command_output .= shell_exec("$REPO_CMD_PREFIX$head_update_cmd 2>&1 | cat -");
+            END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+            $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
+        }
+        ###  All other tags, do individual file updates
+        else {
+
+            #############################
+            ###  Step 1 : First find any files that we have tags for but don't exist
+
+            ###  Start out by updating all rows in the tag table as mass_edit=1
+            ###    as we delete and update, the ones that have tags will be set back to 0
+            $rv = dbh_do_bind("UPDATE file_tag SET mass_edit=1 AND tag=?", $tag);
+    
+            $command_output = '';
+    
+            $status = $this->get_dir_status();
+            foreach ( preg_split('/\n/', $status ) as $line ) {
+                if ( preg_match('/^\s*[A-Z]?\s*\d+\s+(\d+)\s+\S+\s+(\S.*)$/', $line, $m) ) {
+                    $cur_rev = $m[1];
+                    $file = rtrim($m[2],"\n\r");
+    
+                    ###  Skip dirs in SVN (for now)...
+                    if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
+    
+###  We could be cache-ing the tags here, but in some repos with long file paths and hundreds of thousands of files, we would run out of memory                    
+#                    ###  See what the tag is...
+#                    $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+#                    $old_rev = $sth->fetch(PDO::FETCH_NUM);
+#                    $sth->closeCursor();
+    
+                    ###  ALL we are doing for the files that exist for this loop is marking mass_edit as off
+                    $rv = dbh_do_bind("UPDATE file_tag SET mass_edit=0 WHERE file = ? AND tag = ?", $file, $tag);
+                }
+            }
+
+            #############################
+            ###  Step 2 : Update the files that didn't exist...
+
+            ###  The rows the mass_edit still need to be Un-tagged...
+            ###  See what the tag was before...
+            $sth = dbh_query_bind("SELECT file,revision FROM file_tag WHERE mass_edit=1 AND tag=?", $tag);
+            while (list( $file, $rev ) = $sth->fetch(PDO::FETCH_NUM) ) {
+#                bug("Step 2",$file, $rev);
+                ///  Each loop, do a $individual_file_rev_updates instead of globally
+                $individual_file_rev_updates = array();
+                $dir_test = $file;
+                ###  Before we do Inidividual Tag updates on files the containing dirs must exist
+                $dirs_to_update = array();
+                while ( ! empty( $dir_test )
+                        && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
+                        && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
+                        && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
+                        ) {
+                    $dir = dirname($dir_test);
+                    $dirs_to_update[] = $dir;
+                    $doing_indiv_dir_update[$dir] = true;
+
+                    $dir_test = $dir; // iterate backwards
+                }
+                ///  Need to add in parent-first order
+                ///    NOTE: we only need to do the parent one, because the in-between ones will be included
+                if ( count( $dirs_to_update ) )
+                    $individual_file_rev_updates[] = array( array_pop($dirs_to_update), $rev );
+                
+                $individual_file_rev_updates[] = array( $file, $rev );
+#                bug($individual_file_rev_updates);
+
+                foreach ( $individual_file_rev_updates as $update ) {
+                    list($up_file, $up_rev) = $update;
+
+                    $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
+                    START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                    $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
+                    $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
+                    END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                    $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
+                }
+            }
+            $sth->closeCursor();
+    
+            $rv = dbh_do_bind("UPDATE file_tag SET mass_edit=0 WHERE tag=?", $tag);
+
+
+
+            #############################
+            ###  Step 3 : NOW, get a new Status output, and go through again, now that all files are present and set everything to the right tags
+
+            ###  Reset Cache on dir status
+            unset( $this->repo_cache['dir_status']['*ROOTDIR*'] );
+
+            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($_SERVER['PROJECT_REPO_BASE'])); 
+            foreach ($iterator as $path) {
+                ///  Skip .svn directories
+                if ( preg_match('/\\'. DIRECTORY_SEPARATOR .'.svn$/', $path)
+                     || strpos($path, DIRECTORY_SEPARATOR . '.svn' . DIRECTORY_SEPARATOR ) !== false
+                     ) continue;
+                $file = str_replace( $_SERVER['PROJECT_REPO_BASE'].'/', '', (string) $path);
+
+                if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$path") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                     ) continue;
+#                bug("Step 3",$file);
+
+                ///  Each loop, do a $individual_file_rev_updates instead of globally
+                $individual_file_rev_updates = array();
+
+                ###  Get the tag rev for this file...
+                $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+                $rev = $sth->fetch(PDO::FETCH_NUM);
+                $sth->closeCursor();
+                if ( ! empty( $rev ) ) {
+
+                    $dir_test = $file;
+                    ###  Before we do Inidividual Tag updates on files the containing dirs must exist
+                    $dirs_to_update = array();
+                    while ( ! empty( $dir_test )
+                            && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
+                            && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
+                            && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
+                            ) {
+                        $dir = dirname($dir_test);
+                        $dirs_to_update[] = $dir;
+                        $doing_indiv_dir_update[$dir] = true;
+
+                        $dir_test = $dir; // iterate backwards
+                    }
+                    ///  Need to add in parent-first order
+                    ///    NOTE: we only need to do the parent one, because the in-between ones will be included
+                    if ( count( $dirs_to_update ) )
+                        $individual_file_rev_updates[] = array( array_pop($dirs_to_update), $rev[0] );
+                    else 
+                        $individual_file_rev_updates[] = array( $file, $rev[0] );
+                } else {
+                    list($head_rev, $error) = $this->get_head_rev( $file );
+                    if ( empty( $error ) ) {
+                        $rev_before_head = $head_rev - 1;
+                        $individual_file_rev_updates[] = array( $file, $rev_before_head );
+                    }
+                }
+#                bug($individual_file_rev_updates);
+
+                ///  Do updates...
+                foreach ( $individual_file_rev_updates as $update ) {
+                    list($up_file, $up_rev) = $update;
+
+                    $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
+                    START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                    $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
+                    $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
+                    END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                    $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
+                }
+            }
+        }
+
+        if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
+
+ #       exit;
+        return( array($cmd, $command_output) );
+    }
 }

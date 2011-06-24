@@ -43,12 +43,19 @@ if ( ! empty($SYSTEM_TAGS_DB) ) {
                          file      character varying(1000) NOT NULL,
                          tag       character varying(25) NOT NULL,
                          revision  int NOT NULL,
+                         mass_edit int NOT NULL DEFAULT 0,
                          CONSTRAINT file_tag_pk PRIMARY KEY ( file, tag )
                        )
                       ");
+
+//$dbh->exec("ALTER TABLE file_tag ADD COLUMN
+//             mass_edit int NOT NULL DEFAULT 0");
+//exit;
+
     }
 }
 $BUG_ON = true;
+
 
 
 #########################
@@ -127,6 +134,68 @@ else if ( $_REQUEST['action'] == 'tag' ) {
 
     ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
     $bounce_url = "?action=view_project&pid=". getmypid() ."&pname=". urlencode($project->project_name) ."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9))) ."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)));
+    if ( strlen( $bounce_url ) > 2000 ) {
+        echo style_sheet();
+        echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
+        echo "<xmp>> $cmd\n\n$command_output\n</xmp>\n\n";
+        echo "</font>\n\n";
+    }
+    ###  Else, just bounce
+    else {
+        header("Location: $bounce_url");
+        exit;
+    }
+}
+else if ( $_REQUEST['action'] == 'entire_repo_tag' ) {
+    if ( $READ_ONLY_MODE ) return trigger_error("Permission Denied", E_USER_ERROR);
+
+    ///  These can take a while...
+    set_time_limit( 0 );
+
+    $tag = $_REQUEST['tag'];
+    if ( empty( $tag ) ) {
+        echo style_sheet();
+        repo_admin_page();
+    }
+    if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
+        return trigger_error("Please don't hack...", E_USER_ERROR);
+    
+    ///  Run the action
+    list( $cmd, $command_output ) = $repo->tagEntireRepoAction( $tag, ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+
+    ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
+    $bounce_url = "?action=repo_admin&pid=". getmypid() ."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9))) ."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)));
+    if ( strlen( $bounce_url ) > 2000 ) {
+        echo style_sheet();
+        echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
+        echo "<xmp>> $cmd\n\n$command_output\n</xmp>\n\n";
+        echo "</font>\n\n";
+    }
+    ###  Else, just bounce
+    else {
+        header("Location: $bounce_url");
+        exit;
+    }
+}
+else if ( $_REQUEST['action'] == 'entire_repo_update' ) {
+    if ( $READ_ONLY_MODE ) return trigger_error("Permission Denied", E_USER_ERROR);
+
+    ///  These can take a while...
+    set_time_limit( 0 );
+
+    $update = $_REQUEST['update'];
+    if ( empty( $tag ) ) {
+        echo style_sheet();
+        repo_admin_page();
+    }
+    if ( preg_match('/[^\w\_\-\.]/', $tag, $m) ) 
+        return trigger_error("Please don't hack...", E_USER_ERROR);
+    
+    ///  Run the action
+    list( $cmd, $command_output ) = $repo->updateEntireRepoAction( $tag, ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+
+    ###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
+    $bounce_url = "?action=repo_admin&pid=". getmypid() ."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9))) ."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)));
     if ( strlen( $bounce_url ) > 2000 ) {
         echo style_sheet();
         echo "<font color=red><h3>Command Output (Too Large for redirect)</h3>\n<p><a href=\"javascript:history.back()\">Go Back</a></p>\n<hr>\n";
@@ -655,6 +724,353 @@ ENDHTML;
 
 }
 
+function repo_admin_page() {
+    global $repo;
+
+    list( $cmd, $command_output ) = array( $_REQUEST['cmd'], $_REQUEST['command_output'] );
+
+    ###  Command output
+    if ( ! empty( $cmd ) ) {
+        echo "<font color=red><h3>Command Output</h3>\n";
+        echo "<xmp>> ". gzinflate( base64_decode($cmd) ) ."\n\n". gzinflate( base64_decode($command_output) ) ."\n</xmp>\n\n";
+        echo "</font>\n\n";
+        echo "<br><br><a href=\"?action=repo_admin\" style=\"font-size:70%\">&lt;&lt;&lt; Click here to hide Command output &gt;&gt;&gt;</a><br>\n\n";
+    }
+
+    echo "<h2>Repository Administration and Maintenance</h2>\n\n";
+
+    ###  Actions
+    if ( $READ_ONLY_MODE ) {
+        echo <<<ENDHTML
+<table width="100%" border=0 cellspacing=0 cellpadding=0>
+<tr>
+  <td align="left" valign="top">
+    <h3>Actions</h3>
+    <i>You must log in as a privileged user to perform $repo->display_name actions.  Sorry.</i>
+  </td>
+  <td align="left" valign="top">
+ENDHTML;
+    }
+    else {
+        echo <<<ENDHTML
+<table width="100%" border=0 cellspacing=0 cellpadding=0>
+<tr>
+  <td align="left" valign="top">
+    <h3>Actions</h3>
+    Update Entire Current Repository to: <a href="javascript: confirmAction('UPDATE','?action=entire_repo_update&tag=HEAD')"      >HEAD</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=entire_repo_update&tag=PROD_TEST')">PROD_TEST</a>
+                 | <a href="javascript: confirmAction('UPDATE','?action=entire_repo_update&tag=PROD_SAFE')">PROD_SAFE</a>
+    <br>Tag Entire Current Repository as:    <a href="javascript: confirmAction('TAG',   '?action=entire_repo_tag&tag=PROD_TEST')">PROD_TEST</a>
+                 | <a href="javascript: confirmAction('TAG',   '?action=entire_repo_tag&tag=PROD_SAFE')"     >PROD_SAFE</a>
+    <br>Diff Entire Current Repository to: <a href="?action=entire_repo_diff&tag=HEAD"    >HEAD</a>
+                 | <a href="?action=entire_repo_diff&tag=PROD_TEST">PROD_TEST</a>
+                 | <a href="?action=entire_repo_diff&tag=PROD_SAFE">PROD_SAFE</a>
+  </td>
+  <td align="left" valign="top">
+ENDHTML;
+    }
+
+    ###  Rollout process for different phases
+    if ( onAlpha() ) {
+        $beta_area_url = get_area_url('beta');
+        echo <<<ENDHTML
+            <h3>Maintenance Operations</h3>
+            <i>None yet.  Maintenance is best done manually on command-line to preserve your own user permissions</i>
+ENDHTML;
+
+
+            ///  Repo Status
+            echo "<h4>Repository Status</h4>";
+            echo "Current Status: ";
+            echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+                global $repo;
+                
+                $dir_status = $repo->analyze_dir_status();
+                $status_items = array();
+                if ( ! empty( $dir_status['has_modified'] ) ) $status_items[] = $dir_status['has_modified'] .' Locally Modified';
+                if ( ! empty( $dir_status['has_conflicts'] ) ) $status_items[] = '<font color="red">'. $dir_status['has_conflicts'] .' Has Conflicts</font>';
+                if ( empty( $status_items ) ) $status_items[] = '<font color="green">No Local Changes</font>';
+                
+                $cur_vers = join(', ', $status_items);
+                
+                return $cur_vers;
+DELAY
+*/
+));
+            ///  Repo Diff from PROD TEST
+            echo "<br/>Diff from PROD_TEST: ";
+            echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+                global $repo;
+                
+                $dir_diff = $repo->diff_dir_from_tag('PROD_TEST');
+                $diff_items = array();
+                if ( ! empty( $dir_diff['files_ahead_of_tag'] ) ) $diff_items[] = $dir_diff['files_ahead_of_tag'] .' ahead of tag';
+                if ( ! empty( $dir_diff['files_behind_tag']   ) ) $diff_items[] = $dir_diff['files_behind_tag']   .' behind tag';
+                if ( ! empty( $dir_diff['files_no_tag']       ) ) $diff_items[] = $dir_diff['files_no_tag']       .' NO tag';
+                if ( ! empty( $dir_diff['files_unknown']      ) ) $diff_items[] = $dir_diff['files_unknown']      .' unknown';
+                if ( ! empty( $dir_diff['files_on_tag']       ) ) $diff_items[] = '<font color="green">'. $dir_diff['files_on_tag']       .' on tag</font>';
+                
+                $prod_test_vers = join(', ', $diff_items);
+                
+                return $prod_test_vers;
+DELAY
+*/
+));
+            echo "<br/>";
+
+    }
+    else if ( onBeta() ) {
+        echo <<<ENDHTML
+        <h3>Maintenance Operations - QA STAGING PHASE</h3>
+        <p>
+            As a general rule, staging areas are kept as close as possible as identical as
+            production (which is tracked by the tag PROD_TEST).  If there are NO Projects 
+            in Step 1, 3, or 4 of rollout, then it should be SAFE to update the staging area
+            to PROD_TEST.
+        </p>
+ENDHTML;
+
+        ///  Output a WARNING if there are any Projects in Steps 1, 3, or 4
+        echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+            global $repo;
+
+            return '';
+DELAY
+*/
+));
+
+            ///  Repo Status
+            echo "<h4>Repository Status</h4>";
+            echo "Current Status: ";
+            echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+                global $repo;
+                
+                $dir_status = $repo->analyze_dir_status();
+                $status_items = array();
+                if ( ! empty( $dir_status['has_modified'] ) ) $status_items[] = $dir_status['has_modified'] .' Locally Modified';
+                if ( ! empty( $dir_status['has_conflicts'] ) ) $status_items[] = '<font color="red">'. $dir_status['has_conflicts'] .' Has Conflicts</font>';
+                if ( empty( $status_items ) ) $status_items[] = '<font color="green">No Local Changes</font>';
+                
+                $cur_vers = join(', ', $status_items);
+                
+                return $cur_vers;
+DELAY
+*/
+));
+            ///  Repo Diff from PROD TEST
+            echo "<br/>Diff from PROD_TEST: ";
+            echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+                global $repo;
+                
+                $dir_diff = $repo->diff_dir_from_tag('PROD_TEST');
+                $diff_items = array();
+                if ( ! empty( $dir_diff['files_ahead_of_tag'] ) ) $diff_items[] = $dir_diff['files_ahead_of_tag'] .' ahead of tag';
+                if ( ! empty( $dir_diff['files_behind_tag']   ) ) $diff_items[] = $dir_diff['files_behind_tag']   .' behind tag';
+                if ( ! empty( $dir_diff['files_no_tag']       ) ) $diff_items[] = $dir_diff['files_no_tag']       .' NO tag';
+                if ( ! empty( $dir_diff['files_unknown']      ) ) $diff_items[] = $dir_diff['files_unknown']      .' unknown';
+                if ( ! empty( $dir_diff['files_on_tag']       ) ) $diff_items[] = '<font color="green">'. $dir_diff['files_on_tag']       .' on tag</font>';
+                
+                $prod_test_vers = join(', ', $diff_items);
+                
+                return $prod_test_vers;
+DELAY
+*/
+));
+            echo "<br/>";
+
+        if ( $READ_ONLY_MODE ) {
+            echo <<<ENDHTML
+            <h4>Actions</h4>
+            Diff   Entire STAGING Repository from PROD_TEST<br>
+            Update Entire STAGING Repository to PROD_TEST<br>
+ENDHTML;
+        }
+        else {
+            echo <<<ENDHTML
+            <h4>Actions</h4>
+            <a href="?action=entire_repo_diff&diff=PROD_TEST">Diff   Entire STAGING Repository from PROD_TEST</a><br>
+            <a href="javascript: confirmAction('UPDATE','?action=entire_repo_update&tag=PROD_TEST')"    >Update Entire STAGING Repository to PROD_TEST</a><br>
+ENDHTML;
+        }            
+    }
+    else if ( onLive() ) {
+        echo <<<ENDHTML
+        <h3>Maintenance Operations - LIVE PRODUCTION PHASE</h3>
+        <p>
+            As a general rule, production areas are kept as close as possible as identical as
+            production (which is tracked by the tag PROD_TEST).  If there are NO Projects 
+            in Step 1, 3, or 4 of rollout, then it should be SAFE to update the production area
+            to PROD_TEST.
+        </p>
+ENDHTML;
+
+        ///  Output a WARNING if there are any Projects in Steps 1, 3, or 4
+        echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+            global $repo;
+
+            return '';
+DELAY
+*/
+));
+
+            ///  Repo Status
+            echo "<h4>Repository Status</h4>";
+            echo "Current Status: ";
+            echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+                global $repo;
+                
+                $dir_status = $repo->analyze_dir_status();
+                $status_items = array();
+                if ( ! empty( $dir_status['has_modified'] ) ) $status_items[] = $dir_status['has_modified'] .' Locally Modified';
+                if ( ! empty( $dir_status['has_conflicts'] ) ) $status_items[] = '<font color="red">'. $dir_status['has_conflicts'] .' Has Conflicts</font>';
+                if ( empty( $status_items ) ) $status_items[] = '<font color="green">No Local Changes</font>';
+                
+                $cur_vers = join(', ', $status_items);
+                
+                return $cur_vers;
+DELAY
+*/
+));
+            ///  Repo Diff from PROD TEST
+            echo "<br/>Diff from PROD_TEST: ";
+            echo delayed_load_span(array(), create_function('',now_doc('DELAY')/*
+                global $repo;
+                
+                $dir_diff = $repo->diff_dir_from_tag('PROD_TEST');
+                $diff_items = array();
+                if ( ! empty( $dir_diff['files_ahead_of_tag'] ) ) $diff_items[] = $dir_diff['files_ahead_of_tag'] .' ahead of tag';
+                if ( ! empty( $dir_diff['files_behind_tag']   ) ) $diff_items[] = $dir_diff['files_behind_tag']   .' behind tag';
+                if ( ! empty( $dir_diff['files_no_tag']       ) ) $diff_items[] = $dir_diff['files_no_tag']       .' NO tag';
+                if ( ! empty( $dir_diff['files_unknown']      ) ) $diff_items[] = $dir_diff['files_unknown']      .' unknown';
+                if ( ! empty( $dir_diff['files_on_tag']       ) ) $diff_items[] = '<font color="green">'. $dir_diff['files_on_tag']       .' on tag</font>';
+                
+                $prod_test_vers = join(', ', $diff_items);
+                
+                return $prod_test_vers;
+DELAY
+*/
+));
+            echo "<br/>";
+
+        if ( $READ_ONLY_MODE ) {
+            echo <<<ENDHTML
+            <h4>Actions</h4>
+            Diff   Entire PRODUCTION Repository from PROD_TEST<br>
+            Tag Entire PRODUCTION Repository as PROD_TEST<br>
+ENDHTML;
+        }
+        else {
+            echo <<<ENDHTML
+            <h4>Actions</h4>
+            <a href="?action=entire_repo_diff&diff=PROD_TEST">Diff   Entire PRODUCTION Repository from PROD_TEST</a><br>
+            <a href="javascript: confirmAction('TAG','?action=entire_repo_tag&tag=PROD_TEST')"    >Tag Entire PRODUCTION Repository as PROD_TEST</a><br>
+ENDHTML;
+        }            
+    }
+
+    ###  End table
+    echo <<<ENDHTML
+  </td>
+</table>
+ENDHTML;
+
+    ###  Echo File details
+    ###    Hack for now... When we rewrite, use open!!
+    echo "<h3>Repository Status for Root Directory</h3>\n";
+    print( "<table width=100%>\n"
+            . "<tr><td>&nbsp;</td><td colspan=5 align=center style=\"border: solid black; border-width: 1px 1px 0px 1px\"><b>Revisions</b></td><td>&nbsp;</td><td>&nbsp;</td></tr>"
+            . "<tr>"
+            . "<td width=30%><b>File Name</b></td>"
+            . "<td align=center><b>Current Status</b></td>"
+            . "<td align=center><b>PROD_TEST</b></td>"
+            . "<td align=center><b>PROD_SAFE</b></td>"
+            . "</tr>\n"
+            );
+#    $repo->cache_logs( $files );
+#    $repo->cache_statuses( $files );
+    $locally_modified = false;
+    $files = $repo->get_ls();
+    foreach ( $files as $file ) {
+
+        list($cur_vers, $head_vers, $prod_test_vers, $prod_safe_vers) = array('','','','');
+
+        ###  Get Current Version
+#        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+#            global $repo;
+
+            $dir_status = $repo->analyze_dir_status($file);
+            $status_items = array();
+            if ( ! empty( $dir_status['has_modified'] ) ) $status_items[] = $dir_status['has_modified'] .' Locally Modified';
+            if ( ! empty( $dir_status['has_conflicts'] ) ) $status_items[] = '<font color="red">'. $dir_status['has_conflicts'] .' Has Conflicts</font>';
+            if ( empty( $status_items ) ) $status_items[] = '<font color="green">No Local Changes</font>';
+
+            $cur_vers = "<div>". join(', ', $status_items) ."</div>";
+
+#            return $cur_vers;
+#DELAY
+#*/
+#));
+
+        ###  Get PROD_TEST Version
+        $prod_test_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
+            global $repo;
+
+            $dir_diff = $repo->diff_dir_from_tag('PROD_TEST', $file);
+            $diff_items = array();
+            if ( ! empty( $dir_diff['files_ahead_of_tag'] ) ) $diff_items[] = $dir_diff['files_ahead_of_tag'] .' ahead of tag';
+            if ( ! empty( $dir_diff['files_behind_tag']   ) ) $diff_items[] = $dir_diff['files_behind_tag']   .' behind tag';
+            if ( ! empty( $dir_diff['files_no_tag']       ) ) $diff_items[] = $dir_diff['files_no_tag']       .' NO tag';
+            if ( ! empty( $dir_diff['files_unknown']      ) ) $diff_items[] = $dir_diff['files_unknown']      .' unknown';
+            if ( ! empty( $dir_diff['files_on_tag']       ) ) $diff_items[] = '<font color="green">'. $dir_diff['files_on_tag']       .' on tag</font>';
+
+            $prod_test_vers = "<div>". join(', ', $diff_items) ."</div>";
+
+            return $prod_test_vers;
+DELAY
+*/
+));
+
+        ###  Get PROD_SAFE Version
+        $prod_safe_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
+            global $repo;
+
+            $dir_diff = $repo->diff_dir_from_tag('PROD_SAFE', $file);
+            $diff_items = array();
+            if ( ! empty( $dir_diff['files_ahead_of_tag'] ) ) $diff_items[] = $dir_diff['files_ahead_of_tag'] .' ahead of tag';
+            if ( ! empty( $dir_diff['files_behind_tag']   ) ) $diff_items[] = $dir_diff['files_behind_tag']   .' behind tag';
+            if ( ! empty( $dir_diff['files_no_tag']       ) ) $diff_items[] = $dir_diff['files_no_tag']       .' NO tag';
+            if ( ! empty( $dir_diff['files_unknown']      ) ) $diff_items[] = $dir_diff['files_unknown']      .' unknown';
+            if ( ! empty( $dir_diff['files_on_tag']       ) ) $diff_items[] = '<font color="green">'. $dir_diff['files_on_tag']       .' on tag</font>';
+
+            $prod_safe_vers = "<div>". join(', ', $diff_items) ."</div>";
+
+            return $prod_safe_vers;
+DELAY
+*/
+));
+
+        print( "<tr>"
+                . "<td><a href=\"?action=entire_repo_full_log&file=". urlencode($file) ."\">$file</a></td>"
+                . "<td align=center>$cur_vers</td>"
+                . "<td align=center>$prod_test_vers</td>"
+                . "<td align=center>$prod_safe_vers</td>"
+                . "</tr>\n"
+                );
+    }
+    echo "</table>\n";
+
+    ###  If there were any locally modified files, then
+    ###    DISABLE Updating until they are fixed
+    if ( $locally_modified ) {
+        echo <<<ENDHTML
+<script type="text/javascript">
+disable_actions = 1;
+</script>
+ENDHTML;
+    }
+
+}
+
 function part_log_page() {
     global $repo;
 
@@ -932,6 +1348,7 @@ function env_header() {
     $query_string = $_SERVER['QUERY_STRING'];
     $query_string = preg_replace('/[\&\?](cmd|command_output|tag)=[^\&]+/','',$query_string);
     $query_string = preg_replace('/action=(update|tag)/','action=view_project',$query_string);
+    $query_string = preg_replace('/action=(entire_repo_update|entire_repo_tag)/','action=repo_admin',$query_string);
     
     ###  Output Staging Area Switch line
     $tmp = array();

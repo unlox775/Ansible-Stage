@@ -15,3 +15,4 @@ TODO:
 1) Finish porting the remote_call connection for remote access to the /projects/ dir and logs
 2) Explain (and make easier) to people how to install the SUDO perms of the APACHE-running-CVS bits
 3) Write more docs
+4) Write the Repo Admin functions for the CVS Repo
