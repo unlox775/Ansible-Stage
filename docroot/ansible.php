@@ -10,11 +10,19 @@
 #########################
 ###  Configuration, Setup
 
+require_once(dirname(__FILE__) .'/lib/File_NFSLock.class.php');
+#$l = new File_NFSLock('/tmp/puc',NFS_LOCK_EX|NFS_LOCK_NB,10,30*60);
+#$l->uncache(dirname(__FILE__) .'/lib/config.php');
+#$l->uncache(dirname(__FILE__) .'/lib/Repo.class.php');
+#$l->uncache(dirname(__FILE__) .'/lib/Project.class.php');
+#$l->uncache(dirname(__FILE__) .'/'. $ANSIBLE_REPO_FILE);
+
 require_once(dirname(__FILE__) .'/lib/config.php');
 require_once(dirname(__FILE__) .'/lib/debug.inc.php');
 require_once(dirname(__FILE__) .'/lib/Repo.class.php');
 require_once(dirname(__FILE__) .'/lib/Project.class.php');
 require_once(dirname(__FILE__) .'/'. $ANSIBLE_REPO_FILE);
+#bug("UNCACHED!");
 
 #$cmd = $REPO_CMD_PREFIX.'svn log index.php';
 #bug( `$cmd` );
@@ -31,7 +39,6 @@ if ( ! empty($SYSTEM_TAGS_DB_FILE) ) {
     if ( ! file_exists( $SYSTEM_TAGS_DB_FILE ) ) $INIT_DB_NOW = true;
     
     ###  Get an exclusive File_NFSLock on the DB file...
-    require_once(dirname(__FILE__) .'/lib/File_NFSLock.class.php');
     $db_file_lock = new File_NFSLock($SYSTEM_TAGS_DB,LOCK_EX,10,30*60); # stale lock timeout after 30 minutes
 }
 
@@ -183,7 +190,7 @@ else if ( $_REQUEST['action'] == 'entire_repo_update' ) {
     ///  These can take a while...
     set_time_limit( 0 );
 
-    $update = $_REQUEST['update'];
+    $tag = $_REQUEST['tag'];
     if ( empty( $tag ) ) {
         echo style_sheet();
         repo_admin_page();

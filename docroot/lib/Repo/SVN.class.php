@@ -79,10 +79,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                     
                     $individual_file_rev_updates[] = array( $file, $rev[0] );
                 } else {
-                    list($head_rev, $error) = $this->get_head_rev( $file );
+                    list($first_rev, $error) = $this->get_first_rev( $file );
                     if ( empty( $error ) ) {
-                        $rev_before_head = $head_rev - 1;
-                        $individual_file_rev_updates[] = array( $file, $rev_before_head );
+                        $rev_before_first = $first_rev - 1;
+                        $individual_file_rev_updates[] = array( $file, $rev_before_first );
                     }
                 }
             }
@@ -672,7 +672,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             ###  See what the tag was before...
             $sth = dbh_query_bind("SELECT file,revision FROM file_tag WHERE mass_edit=1 AND tag=?", $tag);
             while (list( $file, $rev ) = $sth->fetch(PDO::FETCH_NUM) ) {
-#                bug("Step 2",$file, $rev);
                 ///  Each loop, do a $individual_file_rev_updates instead of globally
                 $individual_file_rev_updates = array();
                 $dir_test = $file;
@@ -695,7 +694,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                     $individual_file_rev_updates[] = array( array_pop($dirs_to_update), $rev );
                 
                 $individual_file_rev_updates[] = array( $file, $rev );
-#                bug($individual_file_rev_updates);
 
                 foreach ( $individual_file_rev_updates as $update ) {
                     list($up_file, $up_rev) = $update;
@@ -720,73 +718,74 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             ###  Reset Cache on dir status
             unset( $this->repo_cache['dir_status']['*ROOTDIR*'] );
 
-            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($_SERVER['PROJECT_REPO_BASE'])); 
-            foreach ($iterator as $path) {
-                ///  Skip .svn directories
-                if ( preg_match('/\\'. DIRECTORY_SEPARATOR .'.svn$/', $path)
-                     || strpos($path, DIRECTORY_SEPARATOR . '.svn' . DIRECTORY_SEPARATOR ) !== false
-                     ) continue;
-                $file = str_replace( $_SERVER['PROJECT_REPO_BASE'].'/', '', (string) $path);
+            $status = $this->get_dir_status();
+            foreach ( preg_split('/\n/', $status ) as $line ) {
+                if ( preg_match('/^\s*[A-Z]?\s*\d+\s+(\d+)\s+\S+\s+(\S.*)$/', $line, $m) ) {
+                    $cur_rev = $m[1];
+                    $file = rtrim($m[2],"\n\r");
+                    
+                    if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                         ) continue;
+      
+                    ///  Each loop, do a $individual_file_rev_updates instead of globally
+                    $individual_file_rev_updates = array();
+      
+                    ###  Get the tag rev for this file...
+                    $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+                    $rev = $sth->fetch(PDO::FETCH_NUM);
+                    $sth->closeCursor();
+                    if ( ! empty( $rev ) ) {
+                        $dir_test = $file;
+                        ###  Before we do Inidividual Tag updates on files the containing dirs must exist
+                        $dirs_to_update = array();
+                        while ( ! empty( $dir_test )
+                                && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
+                                && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
+                                && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
+                                ) {
+                            $dir = dirname($dir_test);
+                            $dirs_to_update[] = $dir;
+                            $doing_indiv_dir_update[$dir] = true;
+      
+                            $dir_test = $dir; // iterate backwards
+                        }
+                        ///  Need to add in parent-first order
+                        ///    NOTE: we only need to do the parent one, because the in-between ones will be included
+                        if ( count( $dirs_to_update ) ) {
+#                            bug("Parent Dir update", $file);
+                            $individual_file_rev_updates[] = array( array_pop($dirs_to_update), $rev[0] );
+                        }
+                        else if ( $cur_rev != $rev[0] ) {
+#                            bug("Regular update", $file);
+                            $individual_file_rev_updates[] = array( $file, $rev[0] );
+                        }
+                    } else {
 
-                if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$path") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                     ) continue;
-#                bug("Step 3",$file);
-
-                ///  Each loop, do a $individual_file_rev_updates instead of globally
-                $individual_file_rev_updates = array();
-
-                ###  Get the tag rev for this file...
-                $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-                $rev = $sth->fetch(PDO::FETCH_NUM);
-                $sth->closeCursor();
-                if ( ! empty( $rev ) ) {
-
-                    $dir_test = $file;
-                    ###  Before we do Inidividual Tag updates on files the containing dirs must exist
-                    $dirs_to_update = array();
-                    while ( ! empty( $dir_test )
-                            && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
-                            && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
-                            && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
-                            ) {
-                        $dir = dirname($dir_test);
-                        $dirs_to_update[] = $dir;
-                        $doing_indiv_dir_update[$dir] = true;
-
-                        $dir_test = $dir; // iterate backwards
+                         list($first_rev, $error) = $this->get_first_rev( $file );
+#                         bug("NO TAG, intent-to-rm update", $file, $first_rev);
+                         if ( empty( $error ) ) {
+                             $rev_before_first = $first_rev - 1;
+                             $individual_file_rev_updates[] = array( $file, $rev_before_first );
+                         }
                     }
-                    ///  Need to add in parent-first order
-                    ///    NOTE: we only need to do the parent one, because the in-between ones will be included
-                    if ( count( $dirs_to_update ) )
-                        $individual_file_rev_updates[] = array( array_pop($dirs_to_update), $rev[0] );
-                    else 
-                        $individual_file_rev_updates[] = array( $file, $rev[0] );
-                } else {
-                    list($head_rev, $error) = $this->get_head_rev( $file );
-                    if ( empty( $error ) ) {
-                        $rev_before_head = $head_rev - 1;
-                        $individual_file_rev_updates[] = array( $file, $rev_before_head );
+      
+                    ///  Do updates...
+                    foreach ( $individual_file_rev_updates as $update ) {
+                        list($up_file, $up_rev) = $update;
+      
+                        $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
+                        START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                        $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
+                        $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
+                        END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                        $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
                     }
-                }
-#                bug($individual_file_rev_updates);
-
-                ///  Do updates...
-                foreach ( $individual_file_rev_updates as $update ) {
-                    list($up_file, $up_rev) = $update;
-
-                    $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
-                    START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-                    $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
-                    $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
-                    END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-                    $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
                 }
             }
         }
 
         if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
 
- #       exit;
         return( array($cmd, $command_output) );
     }
 }
