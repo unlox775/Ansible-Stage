@@ -57,7 +57,8 @@ my $aff_file = "$SYSTEM_PROJECT_BASE/$curr_project/affected_files.txt";
 foreach my $file ( split("\n",`cat $SYSTEM_PROJECT_BASE/$curr_project/affected_files.txt`) ) {
     $file =~ s/(\s*\#.*$|\s+)$//g;
     next if ! length $file;
-    next if -d "$SYSTEM_SVN_BASE/$file";
+###  For SVN we DO allow people to have and list dirs in their files lists
+#    next if -d "$SYSTEM_SVN_BASE/$file";
 
     print "$file\n";
 }
