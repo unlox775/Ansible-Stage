@@ -91,7 +91,7 @@ class Ansible__Project {
             $this->file_tags_cache = array();
             foreach ( explode("\n",$this->get_file( "file_tags.csv" )) as $line ) {
                 $vals = str_getcsv($line);
-                if ( ! $vals >= 2 && ! preg_match('/[\"]/', $vals[1], $m) && preg_match('/^\d+\.\d+(\.\d+\.\d+)?$/', $vals[1], $m) ) continue;
+                if ( count( $vals ) < 2 || preg_match('/[\"]/', $vals[1], $m) || ! preg_match('/^\d+(\.\d+(\.\d+\.\d+)?)?$/', $vals[1], $m) ) continue;
                 $this->file_tags_cache[ $vals[0] ] = $vals[1];
             }
         }

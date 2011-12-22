@@ -19,6 +19,7 @@ require_once(dirname(__FILE__) .'/lib/File_NFSLock.class.php');
 
 require_once(dirname(__FILE__) .'/lib/config.php');
 require_once(dirname(__FILE__) .'/lib/debug.inc.php');
+require_once(dirname(__FILE__) .'/lib/delayed_load.inc.php');
 require_once(dirname(__FILE__) .'/lib/Repo.class.php');
 require_once(dirname(__FILE__) .'/lib/Project.class.php');
 require_once(dirname(__FILE__) .'/'. $ANSIBLE_REPO_FILE);
@@ -30,9 +31,6 @@ require_once(dirname(__FILE__) .'/'. $ANSIBLE_REPO_FILE);
 
 
 # phpinfo(); exit;
-
-$delayed_load_id = 1;
-$delayed_load_calls = array();
 
 ###  Connect to the tags DB
 if ( ! empty($SYSTEM_TAGS_DB_FILE) ) {
@@ -383,13 +381,14 @@ function index_page($category = 'active') {
 function view_project_page() {
     global $repo;
 
-    list( $cmd, $command_output ) = array( $_REQUEST['cmd'], $_REQUEST['command_output'] );
     $project = new Ansible__Project( $_REQUEST['pname'] );
 
-    ###  Command output
-    if ( ! empty( $cmd ) ) {
+    ###  Command output (Sometimes the length is SO long that PHP refuses to parse it into $_REQUEST, but we can still manually get it out of $_SERVER['QUERY_STRING'])
+    if ( preg_match(   '/&cmd=([^&]+)/',            $_SERVER['QUERY_STRING'], $cmd_m )
+         && preg_match('/&command_output=([^&]+)/', $_SERVER['QUERY_STRING'], $command_output_m )
+         ) {
         echo "<font color=red><h3>Command Output</h3>\n";
-        echo "<xmp>> ". gzinflate( base64_decode($cmd) ) ."\n\n". gzinflate( base64_decode($command_output) ) ."\n</xmp>\n\n";
+        echo "<xmp>> ". gzinflate( base64_decode(urldecode($cmd_m[1])) ) ."\n\n". gzinflate( base64_decode(urldecode($command_output_m[1])) ) ."\n</xmp>\n\n";
         echo "</font>\n\n";
         echo "<br><br><a href=\"?action=view_project&pname=$project->project_name\" style=\"font-size:70%\">&lt;&lt;&lt; Click here to hide Command output &gt;&gt;&gt;</a><br>\n\n";
     }
@@ -533,8 +532,8 @@ ENDHTML;
         list($cur_vers, $head_vers, $prod_test_vers, $prod_safe_vers) = array('','','','');
 
         ###  Get Current Version
-#        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-#            global $repo;
+        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+            global $repo;
             if ( ! file_exists($_SERVER['PROJECT_REPO_BASE'] ."/$file") ) {
                 $cur_vers = '<i>-- n/a --</i>';
             } else if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") ) {
@@ -555,15 +554,16 @@ ENDHTML;
                 }
             }
 
-#            return $cur_vers;
-#DELAY
-#*/
-#));
+            return $cur_vers;
+DELAY
+*/
+));
 
         ###  Get PROD_SAFE Version
         $prod_safe_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file, 10);
+			///  So it will show the "Loading..."
+			list( $all_revs ) = $repo->get_all_log_revs($file);
 
             $prod_safe_rev = $repo->get_tag_rev($file, 'PROD_SAFE');
             if ( $prod_safe_rev ) {
@@ -582,7 +582,8 @@ DELAY
         ###  Get PROD_TEST Version
         $prod_test_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file, 10);
+			///  So it will show the "Loading..."
+			list( $all_revs ) = $repo->get_all_log_revs($file);
 
             $prod_test_rev = $repo->get_tag_rev($file, 'PROD_TEST');
             if ( ! empty( $prod_test_rev ) ) {
@@ -601,7 +602,8 @@ DELAY
         ###  Get HEAD Version
         $head_vers = delayed_load_span(array($file,$cur_rev,$project,$file_tags), create_function('$file,$cur_rev,$project,$file_tags',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file, 10);
+			///  So it will show the "Loading..."
+			list( $all_revs ) = $repo->get_all_log_revs($file);
 
             list($head_rev, $error, $error_code) = $repo->get_head_rev($file);
             if ( empty($error) ) {
@@ -627,7 +629,8 @@ DELAY
         ###  Do Target
         $target_vers = delayed_load_span(array($file,$cur_rev,$project), create_function('$file,$cur_rev,$project',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file, 10);
+			///  So it will show the "Loading..."
+			list( $all_revs ) = $repo->get_all_log_revs($file);
 
             list($head_rev, $error, $error_code) = $repo->get_head_rev($file);
             if ( empty($error) ) {
@@ -648,7 +651,8 @@ DELAY
         ###  Changes by
         $changes_by = delayed_load_span(array($file,$cur_rev,$project), create_function('$file,$cur_rev,$project',now_doc('DELAY')/*
             global $repo;
-            $clog = $repo->get_log($file, 10);
+			///  So it will show the "Loading..."
+			list( $all_revs ) = $repo->get_all_log_revs($file);
 
             $prod_test_rev = $repo->get_tag_rev($file, 'PROD_TEST');
             list($head_rev, $error, $error_code) = $repo->get_head_rev($file);
@@ -678,6 +682,8 @@ DELAY
         ###  Actions
         $actions = delayed_load_span(array($file,$cur_rev,$project), create_function('$file,$cur_rev,$project',now_doc('DELAY')/*
             global $repo;
+			///  So it will show the "Loading..."
+			list( $all_revs ) = $repo->get_all_log_revs($file);
 
             $prod_test_rev = $repo->get_tag_rev($file, 'PROD_TEST');
             list($head_rev, $error, $error_code) = $repo->get_head_rev($file);
@@ -734,12 +740,12 @@ ENDHTML;
 function repo_admin_page() {
     global $repo;
 
-    list( $cmd, $command_output ) = array( $_REQUEST['cmd'], $_REQUEST['command_output'] );
-
-    ###  Command output
-    if ( ! empty( $cmd ) ) {
+    ###  Command output (Sometimes the length is SO long that PHP refuses to parse it into $_REQUEST, but we can still manually get it out of $_SERVER['QUERY_STRING'])
+    if ( preg_match(   '/&cmd=([^&]+)/',            $_SERVER['QUERY_STRING'], $cmd_m )
+         && preg_match('/&command_output=([^&]+)/', $_SERVER['QUERY_STRING'], $command_output_m )
+         ) {
         echo "<font color=red><h3>Command Output</h3>\n";
-        echo "<xmp>> ". gzinflate( base64_decode($cmd) ) ."\n\n". gzinflate( base64_decode($command_output) ) ."\n</xmp>\n\n";
+        echo "<xmp>> ". gzinflate( base64_decode(urldecode($cmd_m[1])) ) ."\n\n". gzinflate( base64_decode(urldecode($command_output_m[1])) ) ."\n</xmp>\n\n";
         echo "</font>\n\n";
         echo "<br><br><a href=\"?action=repo_admin\" style=\"font-size:70%\">&lt;&lt;&lt; Click here to hide Command output &gt;&gt;&gt;</a><br>\n\n";
     }
@@ -1002,8 +1008,8 @@ ENDHTML;
         list($cur_vers, $head_vers, $prod_test_vers, $prod_safe_vers) = array('','','','');
 
         ###  Get Current Version
-#        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-#            global $repo;
+        $cur_vers = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+            global $repo;
 
             $dir_status = $repo->analyze_dir_status($file);
             $status_items = array();
@@ -1013,10 +1019,10 @@ ENDHTML;
 
             $cur_vers = "<div>". join(', ', $status_items) ."</div>";
 
-#            return $cur_vers;
-#DELAY
-#*/
-#));
+            return $cur_vers;
+DELAY
+*/
+));
 
         ###  Get PROD_TEST Version
         $prod_test_vers = delayed_load_span(array($file,$cur_rev), create_function('$file,$cur_rev',now_doc('DELAY')/*
@@ -1192,62 +1198,6 @@ function get_archived_projects() {
     $tmp = func_get_args();
     if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, $tmp );
     return explode("\n",`ls -1 $SYSTEM_PROJECT_BASE/archive | grep -E -v '^($PROJECTS_DIR_IGNORE_REGEXP)\$'`);
-}
-
-
-#########################
-###  Delayed Load
-
-function delayed_load_span($params, $lambda_function_name, $loading_msg = '<em class="loading">Loading ...</em>') {
-    global $delayed_load_calls, $delayed_load_id;
-    $id = $delayed_load_id++;
-    $delayed_load_calls[] = array( $id, $lambda_function_name, $params );
-    return '<span id="loading_'. $id .'">'. $loading_msg .'</span>';
-}
-function delayed_load_div($params, $lambda_function_name, $loading_msg = '<em class="loading">Loading ...</em>') {
-    global $delayed_load_calls, $delayed_load_id;
-    $id = $delayed_load_id++;
-    $delayed_load_calls[] = array( $id, $lambda_function_name, $params );
-    return '<div id="loading_'. $id .'">'. $loading_msg .'</div>';
-}
-function run_delayed_load() {
-    global $delayed_load_calls, $delayed_load_id;
-
-    ///  Trick to get the browser to display NOW!
-    print str_repeat(' ',100);
-    flush();ob_flush();
-
-    foreach ($delayed_load_calls as $func_call) {
-        list( $id, $func, $params ) = $func_call;
-        $result = call_user_func_array($func, $params);
-
-        print( '<script type="text/javascript">document.getElementById("loading_'
-               . $id .'").innerHTML = '
-               ."'". str_replace(array("'","\n"), array("\\'","\\n'\n\t+'"), $result) ."'"
-               .';</script>'
-               );
-
-        ///  Get the Browser to display...
-        flush();ob_flush();
-    }
-}
-
-###  Because PHP SUx!
-function now_doc($tag) {
-    $trace = debug_backtrace();
-
-    ///  Loop thru and find the excerpt
-    $handle = @fopen($trace[0]['file'], "r");
-    if ($handle) {
-        $line = 0;  $done = false;  $excerpt = '';
-        while (($buffer = fgets($handle, 4096)) !== false) {
-            $line++;
-            if ( $line > $trace[0]['line'] && $buffer == $tag ."\n" ) $done = true;
-            if ( $line > $trace[0]['line'] && ! $done ) $excerpt .= $buffer;
-        }
-        fclose($handle);
-    }
-    return $excerpt;
 }
 
 

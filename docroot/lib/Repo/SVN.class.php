@@ -13,6 +13,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     public function updateAction($project, $tag, $user) {
         global $REPO_CMD_PREFIX;
 
+		///  Check if we have done the once-per-session check
+		$checked_revision_cache_expire_token = false;
+		$revision_cache_expire_token = false;
+
         $individual_file_rev_updates = array();
 
         ###  Target mode
@@ -126,9 +130,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             ###  Make sure this file exists
             if ( file_exists($_SERVER['PROJECT_REPO_BASE'] ."/$file")
                  && ! is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                 && preg_match('/^\w?\s*\d+\s+(\d+)\s/', $this->get_status($file), $m) 
                  ) {
-                $cur_rev = $m[1];
+                list( $cur_rev ) = $this->get_current_rev($file);
 
                 ###  See what the tag was before...
                 $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
@@ -184,7 +187,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     
     public function get_log( $file, $limit = null ) {
         global $REPO_CMD_PREFIX;
-    
+
         ###  If not cached, get it and cache
         if ( ! $this->repo_cache['log'][$file] ) {
             $parent_dir = dirname($file);
@@ -363,27 +366,23 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
         $revs = array();
 
-        $clog = $this->get_log($file);
-
         if ( $from >= $to ) return array();
-        $all_revs = $this->get_all_log_revs($clog);
+        list( $all_revs ) = $this->get_all_log_revs($file);
         $revs = array();  foreach ( range( ($from+1), $to ) as $_ ) { if ( in_array($_, $all_revs) ) $revs[] = $_; }
 
         return $revs;
     }
 
     public function get_head_rev( $file ) {
-        $clog = $this->get_log($file);
-        
+        list( $all_revs ) = $this->get_all_log_revs($file);
+
         $head_rev = null;  $error = '';
-        if ( preg_match('/^-------+\nr(\d+)\s/m', $clog, $m) ) {
-            $head_rev = $m[1];
-        } else if ( preg_match('/is not under version control|no such directory/', $clog, $m) ) {
+		if ( empty( $all_revs ) ) {
             $error = "Not in $this->display_name";
-        } else {
-            $error = "malformed $this->command_name log";
-        }
-        
+		}
+		else {
+			$head_rev = array_shift( $all_revs );
+		}
         return( array( $head_rev, $error) );
     }
 
@@ -391,13 +390,25 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         $cstat = $this->get_status($file);
         
         $cur_rev = null;  $error = '';  $status = '';  $state_code = '';  $is_modified = false;
-        if ( preg_match('/^(\w?)\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
+        if ( preg_match('/^(\w?)\s*(\d+)\s+\d+\s/', $cstat, $m) ) {
             $letter = $m[1];
             if ( empty($letter) ) $letter = '';
             $letter_trans = array( '' => 'Up-to-date', 'M' => 'Locally Modified', 'A' => 'To-be-added' );
             $status = ( isset( $letter_trans[ $letter ] ) ? $letter_trans[ $letter ] : 'Other: "'. $letter .'"' );
-            if ( preg_match('/^\w?\s*\d+\s+(\d+)\s/', $cstat, $m) ) {
-                $cur_rev = $m[1];
+			///  Determine the revision by taking the first revision number and working backwards in the revision list
+			///    until we find an actual revision.  We used to trust the second number, but that didn't take into
+			///    account SVN move operations, maybe because of and SVN bug ???  Either way, this is the only safe way.
+            if ( preg_match('/^\w?\s*(\d+)\s+\d+\s/', $cstat, $m) ) {
+                $actual_rev = $m[1];
+
+				///  Loop thru the revs from high to low until we pass the rev we just saw in the status output
+				list( $all_revs ) = $this->get_all_log_revs($file);
+				foreach ( $all_revs as $rev ) {
+					if ( $rev <= $actual_rev ) {
+						$cur_rev = $rev;
+						break;
+					}
+				}
             } else {
                 $error = "malformed $this->command_name status";
                 $error_code = 'malformed';
@@ -416,55 +427,95 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
 
     public function get_rev_committer( $file, $rev ) {
-        $entry = $this->get_log_entry( $this->get_log($file), $rev);
-
-        if ( ! empty( $entry ) && preg_match('/^r\d+\s*\|\s*([^\|]+)\s*\|\s*\d{4}/m', $entry, $m) )
-            return $m[1];
+        list( $all_revs, $all_committers ) = $this->get_all_log_revs($file);
+		
+		foreach ( $all_revs as $i => $i_rev ) {
+			if ( $rev == $i_rev ) {
+				return $all_committers[ $i ];
+			}
+		}
         return null;
     }
 
     public function get_prev_rev( $file, $rev ) {
 
-        $clog = $this->get_log($file);
-
-        ///  Get a list of ALL entries...
-        $entries = array();
-        list($head_rev, $err) = $this->get_head_rev($file);
-        list($first_rev, $err) = $this->get_first_rev($file);
-        if ( ! $head_rev || ! $first_rev ) return null;
-        foreach ( $this->get_revs_in_diff($file, $first_rev, $head_rev) as $_ ) {
-            $entry = $this->get_log_entry( $clog, $_ );
-            if ( ! empty($entry) ) $entries[] = array($_, $entry);
-        } 
-
         ///  Loop through (Low to high)
+        list( $all_revs ) = $this->get_all_log_revs($file);
         $prev_rev = null;
-        foreach ( $entries as $e ) {
-            if ( $e[0] >= $rev ) return $prev_rev;
-            $prev_rev = $e[0];
+        foreach ( array_reverse( $all_revs ) as $e ) {
+            if ( $e >= $rev ) return $prev_rev;
+            $prev_rev = $e;
         }
         return $prev_rev;
     }
 
     public function get_first_rev( $file ) {
-        $clog = $this->get_log($file);
-       
-        $first_rev = null;  $error = '';
-        if ( preg_match_all('/^-------+\nr(\d+)\s/m', $clog, $m, PREG_SET_ORDER) ) {
-            $last_match = array_pop( $m );
-            $first_rev = $last_match[1];
-        } else if ( preg_match('/is not under version control|no such directory/', $clog, $m) ) {
+        list( $all_revs ) = $this->get_all_log_revs($file);
+
+        $head_rev = null;  $error = '';
+		if ( empty( $all_revs ) ) {
             $error = "Not in $this->display_name";
-        } else {
-            $error = "malformed $this->command_name log";
-        }
-        
-        return( array( $first_rev, $error) );
+		}
+		else {
+			$head_rev = array_pop( $all_revs );
+		}
+        return( array( $head_rev, $error) );
     }
 
-    public function get_all_log_revs( $clog ) {
-        preg_match_all('/---------+\nr(\d+)\s*\|.+?(?=---------+|$)/s', $clog, $m, PREG_PATTERN_ORDER);
-        return( empty( $m ) ? array() : $m[1] );
+    public function get_all_log_revs( $file ) {
+
+        $cache_key = 'all_log_revs';
+
+		if ( ! isset( $this->repo_cache[$cache_key][$file] ) ) {
+
+			///  Check if this is cached already
+			$sth = dbh_query_bind("SELECT * FROM revision_cache WHERE file = ?", $file);
+			$cache = $sth->fetch(PDO::FETCH_ASSOC);
+			$sth->closeCursor();
+
+			///  If we got a record and have an expire token...
+			if ( ! empty( $cache )
+				 && $this->expire_token() !== false
+				 ) {
+				///  If the Expire Token matched, then use the DB cache...
+				if ( $this->expire_token() == $cache['expire_token'] ) {
+					$this->repo_cache[$cache_key][$file]['revisions']  = empty($cache['revisions'])  ? array() : explode(',', $cache['revisions']);
+					$this->repo_cache[$cache_key][$file]['committers'] = empty($cache['committers']) ? array() : explode(',', $cache['committers']);
+
+					///  Good enough,  return now...
+					return( array( $this->repo_cache[$cache_key][$file]['revisions'], $this->repo_cache[$cache_key][$file]['committers'] ) );
+				}
+				else {
+					//  Then we Truncate the entire table...  (Or later we can add params to do this partially if people are using Ansible diffeerenly)
+					$rv = dbh_query_bind("TRUNCATE TABLE revision_cache");
+					bug('[ TRUNCATING REVISION CACHE ]');
+					///  Then continue, so we can store a new value...
+				}
+			}
+
+			///  If we got here then it means we need to get and store a new value
+
+			///  Start out by getting an SVN Log...
+			$clog = $this->get_log($file);
+			///  Match
+			preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $clog, $m, PREG_PATTERN_ORDER);
+
+			///  Set it from the regex
+			$this->repo_cache[$cache_key][$file]['revisions']  = empty( $m ) ? array() : $m[1];
+			$this->repo_cache[$cache_key][$file]['committers'] = empty( $m ) ? array() : $m[2];
+
+			/// Store it in the database if we can.  (the only reason we couldn't would be an uninitialize Repo or an error)
+			if ( $this->expire_token() !== false ) {
+				$rv = dbh_do_bind("INSERT INTO revision_cache ( file,expire_token,revisions,committers ) VALUES (?,?,?,?)",
+								  $file,
+								  $this->expire_token(), 
+								  join(',', $this->repo_cache[$cache_key][$file]['revisions']  ),
+								  join(',', $this->repo_cache[$cache_key][$file]['committers'] )
+								  );
+			}
+
+		}
+        return( array( $this->repo_cache[$cache_key][$file]['revisions'], $this->repo_cache[$cache_key][$file]['committers'] ) );
     }
 
     public function get_log_entry( $clog, $rev ) {
@@ -472,6 +523,34 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         return $m[0];
     }
 
+	public function expire_token() {
+        global $REPO_CMD_PREFIX;
+
+		///  If we haven't checked the expire token, check now
+		if ( ! $this->checked_revision_cache_expire_token ) {
+			///  Regardless, NOW, we've checked...
+			$this->checked_revision_cache_expire_token = true;
+
+			/// Quickest way to read the SVN address for the repo we are on (6th line of the entries file)...
+			$repo = $_SERVER['PROJECT_REPO_BASE'];
+			$svn_path = trim(`head -n5 "$repo/.svn/entries" | tail -n1`);
+			$svn_info = shell_exec("${REPO_CMD_PREFIX}svn info \"$svn_path\" 2>&1 | cat");
+
+			///  The token, is the newest revision of the Repository root
+			if ( preg_match('/Revision:\s+(\d+)/', $svn_info, $m ) ) {
+				$this->revision_cache_expire_token = $m[1];
+			}
+		}
+
+		if ( empty( $this->revision_cache_expire_token ) ) bug( 'PROBLEM: SVN is returning no trunk base revision! (needed for cache expire token)',
+																'SVN CMD:',"head -n5 \"$repo/.svn/entries\" | tail -n1",
+																'SVN Path:', $svn_path,
+																'SVN Output:', $svn_info,
+																$_SERVER['PROJECT_REPO_BASE']
+																);
+
+		return $this->revision_cache_expire_token;
+	}
 
     #########################
     ###  Repo-wide actions
@@ -559,6 +638,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     public function tagEntireRepoAction($tag, $user) {
         global $REPO_CMD_PREFIX;
 
+		set_time_limit( 0 );
+
         ###  Start out by updating all rows in the tag table as mass_edit=1
         ###    as we delete and update, the ones that have tags will be set back to 0
         $rv = dbh_do_bind("UPDATE file_tag SET mass_edit=1 AND tag=?", $tag);
@@ -571,8 +652,16 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 $cur_rev = $m[1];
                 $file = rtrim($m[2],"\n\r");
 
+				///  Override this with the SLOW, but accurate alternate.  This turns a 2 min update into a 2+ hour update
+                list( $cur_rev ) = $this->get_current_rev($file);
+
                 ###  Skip dirs in SVN (for now)...
                 if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
+				echo ".\n";
+
+				///  Trick to get the browser to display NOW!
+				print str_repeat(' ',100);
+				flush();ob_flush();
 
                 ###  See what the tag is...
                 $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
@@ -621,6 +710,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     public function updateEntireRepoAction($tag, $user) {
         global $REPO_CMD_PREFIX;
 
+		set_time_limit( 0 );
+
         $cmd = '';  $command_output = '';
 
         ###  Prepare for a MASS HEAD update if updating to HEAD
@@ -650,6 +741,9 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 if ( preg_match('/^\s*[A-Z]?\s*\d+\s+(\d+)\s+\S+\s+(\S.*)$/', $line, $m) ) {
                     $cur_rev = $m[1];
                     $file = rtrim($m[2],"\n\r");
+
+					///  Override this with the SLOW, but accurate alternate.  This turns a 2 min update into a 2+ hour update
+					list( $cur_rev ) = $this->get_current_rev($file);
     
                     ###  Skip dirs in SVN (for now)...
                     if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
