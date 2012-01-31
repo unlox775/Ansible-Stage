@@ -1,6 +1,6 @@
 == Ansible Stage ==
 
-== Current Status as of Dec 21, 2011 ==
+=== Current Status as of Dec 21, 2011 ===
 
 The CVS and SVN versions are now complete and sharing the same
 code.  You can define which Version system you are using with a single config parameter.
