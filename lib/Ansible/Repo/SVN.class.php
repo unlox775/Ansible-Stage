@@ -4,6 +4,7 @@
  * SVN Spefic hooks for Ansible Stage
  */
 class Ansible__Repo__SVN extends Ansible__Repo {
+	public $stage = null;
     public $display_name = 'SVN';
     public $command_name = 'svn';
 
@@ -11,7 +12,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     ###  Action Methods
 
     public function updateAction($project, $tag, $user) {
-        global $REPO_CMD_PREFIX;
 
 		///  Check if we have done the once-per-session check
 		$checked_revision_cache_expire_token = false;
@@ -33,7 +33,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         if ( $tag == 'HEAD' ) {
             $mass_head_update_files = array();
             foreach ( $project->get_affected_files() as $file ) {
-                if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
                      ###  Skip this file if in TARGET MODE and it's on the list
                      || ( $target_mode_update && array_key_exists( $file, $file_tags) )
                      ) continue;
@@ -43,7 +43,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             ###  Get Target Mode files
             if ( $target_mode_update ) {
                 foreach ( $project->get_affected_files() as $file ) {
-                    if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                    if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
                          ) continue;
                     if ( ! empty( $file_tags[ $file ] ) && abs( floor( $file_tags[ $file ] ) ) == $file_tags[ $file ] ) 
                         $individual_file_rev_updates[] = array( $file, $file_tags[ $file ] );
@@ -53,7 +53,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         ###  All other tags, do individual file updates
         else {
             foreach ( $project->get_affected_files() as $file ) {
-                if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
                      ) continue;
 
                 ###  Get the tag rev for this file...
@@ -66,8 +66,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                     ###  Before we do Inidividual Tag updates on files the containing dirs must exist
                     $dirs_to_update = array();
                     while ( ! empty( $dir_test )
-                            && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
-                            && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
+                            && ! is_dir( dirname( $this->stage->env()->repo_base ."/$dir_test" ) )
+                            && $this->stage->env()->repo_base != dirname( $this->stage->env()->repo_base ."/$dir_test" )
                             && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
                             ) {
                         $dir = dirname($dir_test);
@@ -98,7 +98,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             foreach ( $mass_head_update_files as $file ) $head_update_cmd .= ' '. escapeshellcmd($file);
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $this->log_repo_action($head_update_cmd, $project, $user);
-            $command_output .= shell_exec("$REPO_CMD_PREFIX$head_update_cmd 2>&1 | cat -");
+			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+            $command_output .= shell_exec("$cmd_prefix$head_update_cmd 2>&1 | cat -");
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
         }
@@ -111,7 +112,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 $indiv_update_cmd = "svn update -r$rev ". escapeshellcmd($file);
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                 $this->log_repo_action($indiv_update_cmd, $project, $user);
-                $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
+				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+                $command_output .= shell_exec("$cmd_prefix$indiv_update_cmd 2>&1 | cat -");
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                 $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
             }
@@ -123,13 +125,12 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
 
     public function tagAction($project, $tag, $user) {
-        global $REPO_CMD_PREFIX;
 
         ###  Look and update tags
         foreach ( $project->get_affected_files() as $file ) {
             ###  Make sure this file exists
-            if ( file_exists($_SERVER['PROJECT_REPO_BASE'] ."/$file")
-                 && ! is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+            if ( file_exists($this->stage->env()->repo_base ."/$file")
+                 && ! is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
                  ) {
                 list( $cur_rev ) = $this->get_current_rev($file);
 
@@ -186,12 +187,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     ###  SVN file Log and Status caching (for speed)
     
     public function get_log( $file, $limit = null ) {
-        global $REPO_CMD_PREFIX;
 
         ###  If not cached, get it and cache
         if ( ! $this->repo_cache['log'][$file] ) {
             $parent_dir = dirname($file);
-            if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) {
+            if ( is_dir($this->stage->env()->repo_base ."/$parent_dir") ) {
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
     
     
@@ -214,7 +214,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     
     #            bug(`${REPO_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`); exit;
                 $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
-                $this->repo_cache['log'][$file] = `${REPO_CMD_PREFIX}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
+				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
@@ -226,20 +227,18 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
     
     public function cache_logs( $files ) {
-        global $REPO_CMD_PREFIX, $MAX_BATCH_SIZE, $MAX_BATCH_STRING_SIZE;
-    
         $cache_key = 'log';
     
         ###  Batch and run the command
         while ( count($files) > 0 ) {
             $round = array();
             $round_str = '';
-            while ( $files && $round < $MAX_BATCH_SIZE && strlen($round_str) < $MAX_BATCH_STRING_SIZE ) {
+            while ( $files && $round < $this->stage->config('max_batch_size') && strlen($round_str) < $this->stage->config('max_batch_string_size') ) {
                 $file = array_shift( $files );
     
                 ###  Skip ones whos parent dir ! exists
                 $parent_dir = dirname($file);
-                if ( ! is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) continue;
+                if ( ! is_dir($this->stage->env()->repo_base ."/$parent_dir") ) continue;
     
                 array_push( $round, $file );
                 $round_str .= " \"$file\"";
@@ -247,7 +246,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     
             $round_checkoff = array_flip($round);
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-            $all_entries = `${REPO_CMD_PREFIX}svn log $round_str 2>&1 | cat`;
+			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+			$all_entries = `${cmd_prefix}svn log $round_str 2>&1 | cat`;
     #        bug substr($all_entries, -200);
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
@@ -277,14 +277,15 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
     
     public function get_status( $file ) {
-        global $REPO_CMD_PREFIX;
     
         ###  If not cached, get it and cache
         if ( ! $this->repo_cache['status'][$file] ) {
             $parent_dir = dirname($file);
-            if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) {
+            if ( is_dir($this->stage->env()->repo_base ."/$parent_dir") ) {
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-                $this->repo_cache['status'][$file] = `${REPO_CMD_PREFIX}svn -v status "$file" 2>&1 | cat`;
+				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+#				bug("${cmd_prefix}svn -v status \"$file\" 2>&1 | cat");
+                $this->repo_cache['status'][$file] = `${cmd_prefix}svn -v status "$file" 2>&1 | cat`;
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
@@ -296,20 +297,18 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
     
     public function cache_statuses( $files ) {
-        global $REPO_CMD_PREFIX, $MAX_BATCH_SIZE, $MAX_BATCH_STRING_SIZE;
-    
         $cache_key = 'status';
     
         ###  Batch and run the command
         while ( count($files) > 0 ) {
             $round = array();
             $round_str = '';
-            while ( $files && $round < $MAX_BATCH_SIZE && strlen($round_str) < $MAX_BATCH_STRING_SIZE ) {
+            while ( $files && $round < $this->stage->config('max_batch_size') && strlen($round_str) < $this->stage->config('max_batch_string_size') ) {
                 $file = array_shift( $files );
     
                 ###  Skip ones whos parent dir ! exists
                 $parent_dir = dirname($file);
-                if ( ! is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) continue;
+                if ( ! is_dir($this->stage->env()->repo_base ."/$parent_dir") ) continue;
     
                 array_push( $round, $file );
                 $round_str .= " \"$file\"";
@@ -317,7 +316,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     
             $round_checkoff = array_flip( $round );
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-            $all_entries = `${REPO_CMD_PREFIX}svn status $round_str 2>&1 | cat`;
+			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+			$all_entries = `${cmd_prefix}svn status $round_str 2>&1 | cat`;
     #        bug substr($all_entries, -200);
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
@@ -388,7 +388,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
     public function get_current_rev( $file ) {
         $cstat = $this->get_status($file);
-        
+
         $cur_rev = null;  $error = '';  $status = '';  $state_code = '';  $is_modified = false;
         if ( preg_match('/^(\w?)\s*(\d+)\s+\d+\s/', $cstat, $m) ) {
             $letter = $m[1];
@@ -524,7 +524,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
 
 	public function expire_token() {
-        global $REPO_CMD_PREFIX;
 
 		///  If we haven't checked the expire token, check now
 		if ( ! $this->checked_revision_cache_expire_token ) {
@@ -532,9 +531,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 			$this->checked_revision_cache_expire_token = true;
 
 			/// Quickest way to read the SVN address for the repo we are on (6th line of the entries file)...
-			$repo = $_SERVER['PROJECT_REPO_BASE'];
+			$repo = $this->stage->env()->repo_base;
 			$svn_path = trim(`head -n5 "$repo/.svn/entries" | tail -n1`);
-			$svn_info = shell_exec("${REPO_CMD_PREFIX}svn info \"$svn_path\" 2>&1 | cat");
+			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+			$svn_info = shell_exec("${cmd_prefix}svn info \"$svn_path\" 2>&1 | cat");
 
 			///  The token, is the newest revision of the Repository root
 			if ( preg_match('/Revision:\s+(\d+)/', $svn_info, $m ) ) {
@@ -546,7 +546,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 																'SVN CMD:',"head -n5 \"$repo/.svn/entries\" | tail -n1",
 																'SVN Path:', $svn_path,
 																'SVN Output:', $svn_info,
-																$_SERVER['PROJECT_REPO_BASE']
+																$this->stage->env()->repo_base
 																);
 
 		return $this->revision_cache_expire_token;
@@ -556,26 +556,26 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     ###  Repo-wide actions
     
     public function get_ls($dir = '') {
-        $full_dir_path = $_SERVER['PROJECT_REPO_BASE'] .'/'. $dir . '/.';
+        $full_dir_path = $this->stage->env()->repo_base .'/'. $dir . '/.';
         $all_files = array();  foreach ( scandir($full_dir_path) as $file ) if ( $file != '.' && $file != '..' && $file != '.svn' ) $all_files[] = $file;
         return $all_files;
     }
     
     public function get_dir_status($dir = '') {
-        global $REPO_CMD_PREFIX;
         ///  If it is a file, then fall back to get_status()
-        if ( file_exists( $_SERVER['PROJECT_REPO_BASE'] .'/'. $dir ) )
+        if ( file_exists( $this->stage->env()->repo_base .'/'. $dir ) )
             return $this->get_status( $dir );
 
-        $full_dir_path = $_SERVER['PROJECT_REPO_BASE'] .'/'. $dir;
+        $full_dir_path = $this->stage->env()->repo_base .'/'. $dir;
 
         $cache_key = ( strlen( $dir ) == 0 ? '*ROOTDIR*' : $dir ); 
         ###  If not cached, get it and cache
         if ( ! $this->repo_cache['dir_status'][$cache_key] ) {
             $parent_dir = dirname($dir);
-            if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$parent_dir") ) {
+            if ( is_dir($this->stage->env()->repo_base ."/$parent_dir") ) {
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-                $this->repo_cache['dir_status'][$cache_key] = `${REPO_CMD_PREFIX}svn -v status "$dir" 2>&1 | cat`;
+				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+                $this->repo_cache['dir_status'][$cache_key] = `${cmd_prefix}svn -v status "$dir" 2>&1 | cat`;
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
@@ -611,7 +611,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 $file = rtrim($m[2],"\n\r");
 
                 ###  Skip dirs in SVN (for now)...
-                if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
+                if ( is_dir( $this->stage->env()->repo_base .'/'. $file ) ) continue;
 
                 ###  See what the tag is...
                 $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
@@ -636,7 +636,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     }
 
     public function tagEntireRepoAction($tag, $user) {
-        global $REPO_CMD_PREFIX;
 
 		set_time_limit( 0 );
 
@@ -656,7 +655,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 list( $cur_rev ) = $this->get_current_rev($file);
 
                 ###  Skip dirs in SVN (for now)...
-                if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
+                if ( is_dir( $this->stage->env()->repo_base .'/'. $file ) ) continue;
 				echo ".\n";
 
 				///  Trick to get the browser to display NOW!
@@ -708,7 +707,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
 
     public function updateEntireRepoAction($tag, $user) {
-        global $REPO_CMD_PREFIX;
 
 		set_time_limit( 0 );
 
@@ -720,7 +718,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             $head_update_cmd = "svn update";
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $this->log_repo_action($head_update_cmd, 'entire_repo', $user);
-            $command_output .= shell_exec("$REPO_CMD_PREFIX$head_update_cmd 2>&1 | cat -");
+            $command_output .= shell_exec($this->stage->config('repo_cmd_prefix') ."$head_update_cmd 2>&1 | cat -");
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
         }
@@ -746,7 +744,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 					list( $cur_rev ) = $this->get_current_rev($file);
     
                     ###  Skip dirs in SVN (for now)...
-                    if ( is_dir( $_SERVER['PROJECT_REPO_BASE'] .'/'. $file ) ) continue;
+                    if ( is_dir( $this->stage->env()->repo_base .'/'. $file ) ) continue;
     
 ###  We could be cache-ing the tags here, but in some repos with long file paths and hundreds of thousands of files, we would run out of memory                    
 #                    ###  See what the tag is...
@@ -772,8 +770,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 ###  Before we do Inidividual Tag updates on files the containing dirs must exist
                 $dirs_to_update = array();
                 while ( ! empty( $dir_test )
-                        && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
-                        && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
+                        && ! is_dir( dirname( $this->stage->env()->repo_base ."/$dir_test" ) )
+                        && $this->stage->env()->repo_base != dirname( $this->stage->env()->repo_base ."/$dir_test" )
                         && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
                         ) {
                     $dir = dirname($dir_test);
@@ -795,7 +793,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                     $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
                     START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                     $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
-                    $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
+                    $command_output .= shell_exec($this->stage->config('repo_cmd_prefix') ."$indiv_update_cmd 2>&1 | cat -");
                     END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                     $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
                 }
@@ -818,7 +816,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                     $cur_rev = $m[1];
                     $file = rtrim($m[2],"\n\r");
                     
-                    if ( is_dir($_SERVER['PROJECT_REPO_BASE'] ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+                    if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
                          ) continue;
       
                     ///  Each loop, do a $individual_file_rev_updates instead of globally
@@ -833,8 +831,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                         ###  Before we do Inidividual Tag updates on files the containing dirs must exist
                         $dirs_to_update = array();
                         while ( ! empty( $dir_test )
-                                && ! is_dir( dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" ) )
-                                && $_SERVER['PROJECT_REPO_BASE'] != dirname( $_SERVER['PROJECT_REPO_BASE'] ."/$dir_test" )
+                                && ! is_dir( dirname( $this->stage->env()->repo_base ."/$dir_test" ) )
+                                && $this->stage->env()->repo_base != dirname( $this->stage->env()->repo_base ."/$dir_test" )
                                 && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
                                 ) {
                             $dir = dirname($dir_test);
@@ -870,7 +868,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                         $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
                         START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                         $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
-                        $command_output .= shell_exec("$REPO_CMD_PREFIX$indiv_update_cmd 2>&1 | cat -");
+                        $command_output .= shell_exec($this->stage->config('repo_cmd_prefix') ."$indiv_update_cmd 2>&1 | cat -");
                         END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                         $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
                     }

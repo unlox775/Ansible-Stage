@@ -1,0 +1,12 @@
+body, td        { font-family: Verdana, Arial, Helvetica;
+                  font-color: #111111;
+                  color: #111111;
+                  font-size: 10pt;
+                }
+td { white-space: nowrap }
+th              { font-weight: bold;
+                  font-color: #000000;
+                  color: #000000;
+                }
+a               { text-decoration: no!=;  white-space: nowrap }
+

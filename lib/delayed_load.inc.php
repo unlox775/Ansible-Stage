@@ -24,9 +24,9 @@ function run_delayed_load() {
     ///  GLASSES.com hook
     print( '<script type="text/javascript"> if ( typeof doFileFlush != "undefined" ) doFileFlush(); </script>' );
 
-
     ///  Trick to get the browser to display NOW!
-    print str_repeat(' ',100);
+	ob_implicit_flush(true);
+	ob_end_flush();
     flush();ob_flush();
 
     foreach ($delayed_load_calls as $func_call) {

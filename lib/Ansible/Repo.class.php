@@ -9,12 +9,10 @@ class Ansible__Repo {
 
     ///  Logging Function
     public function log_repo_action( $command, $project, $user ) {
-        global $PROJECT_SAFE_BASE, $env_mode;
-        
         $project_name = is_string( $project ) ? '**'. $project .'**' : $project->project_name;
         $log_line = join(',', array(time(), getmypid(), date(DATE_RFC822,time()), $user, $project_name, $command)). "\n";
         
-        $file = "$PROJECT_SAFE_BASE/project_svn_log_".$env_mode.".csv";
+        $file = $this->stage->config('safe_base') ."/project_svn_log_". $this->stage->env .".csv";
         file_put_contents($file, $log_line, FILE_APPEND);
     }
 

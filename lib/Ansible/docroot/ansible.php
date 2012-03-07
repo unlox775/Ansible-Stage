@@ -726,6 +726,33 @@ disable_actions = 1;
 ENDHTML;
     }
 
+	###  Other Projects Sharing files
+	$other_projects = array();
+	foreach ( get_projects() as $pname ) {
+        if ( empty( $pname ) || $pname == $project->project_name ) continue;
+
+        $other_project = new Ansible__Project( $pname, false );
+		if ( ! in_array( $other_project->get_group(), array( '00_none','01_staging','03_testing_done','04_prod_rollout_prep' ) ) )
+			continue;
+
+		foreach ( $files as $our_file ) {
+			foreach ( $other_project->get_affected_files() as $their_file ) {
+				if ( $our_file == $their_file ) {
+					if ( ! isset( $other_projects[ $pname ] ) ) $other_projects[ $pname ] = array();
+					$other_projects[ $pname ][] = $their_file;
+				}
+			}
+		}
+	}
+	if ( ! empty( $other_projects ) ) {
+		echo '<label class="other_projects" style="padding: 15px 10px 0 0; font-weight: bold; display: inline-block">Projects Sharing Files: </label>';
+		$content = array();
+		foreach ( $other_projects as $pname => $their_files ) {
+			$content[] = '<a href="?action=view_project&pname='. urlencode($pname) .'" title="Sharing '. count($their_files) .' Files:'. "\n". join("\n", $their_files) .'">'. $pname .'</a>';
+		}
+		echo join(', ', $content);
+	}
+
     ###  Summary File
     echo "<h3>Summary</h3>\n<pre>";
     if ( $project->file_exists("summary.txt") ) {

@@ -5,13 +5,15 @@
  */
 class Ansible__Project {
     public $project_name;
+    public $stage;
     public $archived = false;
     protected $affected_file_cache = null;
     protected $file_tags_cache = null;
     protected $mod_time_bak = null;
 
-    public function __construct($project_name, $archived = false) {
+    public function __construct($project_name, $stage, $archived = false) {
         $this->project_name = $project_name;
+        $this->stage = $stage;
         $this->archived = $archived;
     }
 
@@ -29,47 +31,44 @@ class Ansible__Project {
     }
 
     public function get_ls() {
-        global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+		$project_base = $this->stage->config('project_base');
+        if ( ! is_dir($project_base) ) return call_remote( __FUNCTION__, func_get_args() );
         $archived = $this->archived ? 'archive/' : '';
-        return `/bin/ls -la --time-style=long-iso $SYSTEM_PROJECT_BASE/$archived$this->project_name | head -n2 | tail -n1`;
+        return `/bin/ls -la --time-style=long-iso $project_base/$archived$this->project_name | head -n2 | tail -n1`;
     }
 
     public function get_stat() {
-        global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+        if ( ! is_dir($this->stage->config('project_base')) ) return call_remote( __FUNCTION__, func_get_args() );
         $archived = $this->archived ? 'archive/' : '';
-        return stat($SYSTEM_PROJECT_BASE ."/$archived$this->project_name");
+        return stat($this->stage->config('project_base') ."/$archived$this->project_name");
     }
 
     public function file_exists($file) {
-        global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+        if ( ! is_dir($this->stage->config('project_base')) ) return call_remote( __FUNCTION__, func_get_args() );
         $archived = $this->archived ? 'archive/' : '';
-        return ( file_exists($SYSTEM_PROJECT_BASE ."/$archived$this->project_name/$file") );
+        return ( file_exists($this->stage->config('project_base') ."/$archived$this->project_name/$file") );
     }
 
     public function get_file($file) {
-        global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+        if ( ! is_dir($this->stage->config('project_base')) ) return call_remote( __FUNCTION__, func_get_args() );
         $archived = $this->archived ? 'archive/' : '';
-        if ( ! file_exists("$SYSTEM_PROJECT_BASE/$archived$this->project_name/$file") )
+        if ( !file_exists($this->stage->config('project_base') ."/$archived$this->project_name/$file") )
             return('');
-        return file_get_contents("$SYSTEM_PROJECT_BASE/$archived$this->project_name/$file");
+        return file_get_contents($this->stage->config('project_base') ."/$archived$this->project_name/$file");
     }
 
     public function get_affected_files() {
@@ -122,61 +121,61 @@ class Ansible__Project {
     ###  Write-Access Actions 
 
     public function archive($user, $time = null) {
-        global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+		$project_base = $this->stage->config('project_base');
+        if ( ! is_dir($project_base) ) return call_remote( __FUNCTION__, func_get_args() );
         if ( $this->archived() ) return true;
 
         ///  Make the archive dir if necessary
-        if ( ! is_dir("$SYSTEM_PROJECT_BASE/archive") ) {
-            mkdir("$SYSTEM_PROJECT_BASE/archive", 0755);
+        if ( ! is_dir("$project_base/archive") ) {
+            mkdir("$project_base/archive", 0755);
         }
 
         ///  Move to Archive Dir
         $this->backup_project_mod_time();
-        print `mv $SYSTEM_PROJECT_BASE/$this->project_name $SYSTEM_PROJECT_BASE/archive/$this->project_name`;
+        print `mv $project_base/$this->project_name $project_base/archive/$this->project_name`;
         ///  Log
         if ( empty($time)        ) $time = time();
         if ( ! is_numeric($time) ) $time = strtotime( $time );
         $time = date('Y-m-d H:i:s', $time);
-        print `echo '"'$time'","archived","'$user'"' > $SYSTEM_PROJECT_BASE/archive/$this->project_name/archived.txt`;
-        print `cat $SYSTEM_PROJECT_BASE/archive/$this->project_name/archived.txt >> $SYSTEM_PROJECT_BASE/archive/$this->project_name/archive.log`;
+        print `echo '"'$time'","archived","'$user'"' > $project_base/archive/$this->project_name/archived.txt`;
+        print `cat $project_base/archive/$this->project_name/archived.txt >> $project_base/archive/$this->project_name/archive.log`;
         $this->archived = true;
         $this->restore_project_mod_time();
         return true;
     }
 
     public function unarchive($user, $time = null) {
-        global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+		$project_base = $this->stage->config('project_base');
+        if ( ! is_dir($project_base) ) return call_remote( __FUNCTION__, func_get_args() );
         if ( ! $this->archived() ) return true;
 
         ///  Move out of the Archive Dir
         $this->backup_project_mod_time();
-        print `mv $SYSTEM_PROJECT_BASE/archive/$this->project_name $SYSTEM_PROJECT_BASE/$this->project_name`;
+        print `mv $project_base/archive/$this->project_name $project_base/$this->project_name`;
         ///  Log
         if ( empty($time)        ) $time = time();
         if ( ! is_numeric($time) ) $time = strtotime( $time );
         $time = date('Y-m-d H:i:s', $time);
-        print `echo '"'$time'","unarchived","'$user'"' > $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt`;
-        print `cat $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt >> $SYSTEM_PROJECT_BASE/$this->project_name/archive.log`;
-        print `rm -f $SYSTEM_PROJECT_BASE/$this->project_name/archived.txt`;
+        print `echo '"'$time'","unarchived","'$user'"' > $project_base/$this->project_name/archived.txt`;
+        print `cat $project_base/$this->project_name/archived.txt >> $project_base/$this->project_name/archive.log`;
+        print `rm -f $project_base/$this->project_name/archived.txt`;
         $this->archived = false;
         $this->restore_project_mod_time();
         return true;
     }
 
     public function set_group($group) {
-        global $SYSTEM_PROJECT_BASE;
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+		$project_base = $this->stage->config('project_base');
+        if ( ! is_dir($project_base) ) return call_remote( __FUNCTION__, func_get_args() );
 
         if ( preg_match('/\W/', $group) )
             return trigger_error("Please don't hack...", E_USER_ERROR);
@@ -184,27 +183,26 @@ class Ansible__Project {
         $this->backup_project_mod_time();
         $archived = $this->archived ? 'archive/' : '';
         if ( $group == '00_none' ) {
-            print `rm -f       $SYSTEM_PROJECT_BASE/$archived$this->project_name/.group`;
+            print `rm -f       $project_base/$archived$this->project_name/.group`;
         } else {
-            print `echo $group > $SYSTEM_PROJECT_BASE/$archived$this->project_name/.group`;
+            print `echo $group > $project_base/$archived$this->project_name/.group`;
         }
         $this->restore_project_mod_time();
         return true;
     }
 
     public function restore_project_mod_time() {
-        global $SYSTEM_PROJECT_BASE;
 
         if ( empty( $this->mod_time_bak ) ) return false;
 
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        if ( ! is_dir($SYSTEM_PROJECT_BASE) ) return call_remote( __FUNCTION__, func_get_args() );
+        if ( ! is_dir($this->stage->config('project_base')) ) return call_remote( __FUNCTION__, func_get_args() );
         
         ///  Restore to the backup
         $archived = $this->archived ? 'archive/' : '';
-        touch("$SYSTEM_PROJECT_BASE/$archived$this->project_name", $this->mod_time_bak);
+        touch($this->stage->config('project_base') ."/$archived$this->project_name", $this->mod_time_bak);
         
         return true;
     }

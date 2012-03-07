@@ -1,0 +1,24 @@
+<?php
+
+///  DEFINE THE PATHS relative to this file
+
+///  MODIFY this line to set the path to the Controller.class.php
+require_once(dirname(__FILE__). '/../Stark/Controller.class.php');
+$ctl = new Stark__Controller
+	///  MODIFY these to set paths to each resource
+	( $_SERVER['REQUEST_URI'],
+	  array( 'lib_path'    	   => dirname(__FILE__) .'/../', // directory with Stark libraries
+			 'config_path' 	   => dirname(__FILE__) .'/stark-config.inc.php',
+			 'controller_path' => dirname(__FILE__) .'/../controller',
+			 'model_path'      => dirname(__FILE__) .'/../model',
+			 )
+	 );
+
+///  Common: add the model path to include_path
+set_include_path(get_include_path() . PATH_SEPARATOR . $ctl->model_path);
+
+///  Run the Main Handler
+$ctl->handler();
+
+///  Define a shortcut to the view...
+$view = $ctl->view;
