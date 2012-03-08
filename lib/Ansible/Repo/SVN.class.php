@@ -277,7 +277,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 								$cd_path = $this->stage->config('operation_tmp_base') .'/ansible/'. ( dirname($file) == DIRECTORY_SEPARATOR ? 'trunk' : basename( dirname($file) ) );
 								`rm -Rf "$cd_path"`;
 								$parent_checkout = $svn_path .( dirname($file) == DIRECTORY_SEPARATOR ? '' : DIRECTORY_SEPARATOR. dirname($file) );
-								$tmp_path = $this->stage->config('operation_tmp_base')
+								$tmp_path = $this->stage->config('operation_tmp_base');
 #                                bug('CHEKOUT PARENT', "cd $tmp_path/ansible; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn co --depth empty -r $pre_deletion_rev \"$parent_checkout\" 2>&1 | cat");
 								$par_checkout = `cd "$tmp_path/ansible"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn co --depth empty -r $pre_deletion_rev "$parent_checkout" 2>&1 | cat`;
 #                                bug($par_checkout);
