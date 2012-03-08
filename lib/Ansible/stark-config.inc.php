@@ -16,7 +16,7 @@ require_once($config->lib_path. '/Ansible/Stage.class.php');
 $config->stage = new Ansible__Stage( '',
 									 array( 'lib_path'    => $config->lib_path,
 											'config_path' => $config->ansible_config_path,
-											'url_prefix'  => $config->ansible_url_prefix,
+											'url_prefix'  => $config->url_prefix,
 											)
 									 );
 
@@ -24,7 +24,7 @@ $config->stage = new Ansible__Stage( '',
 /////////////////////////
 ///  Ansible Skin Configuration
 
-$ctl->SKIN_BASE = $config->ansible_url_prefix .'/skins/ugly_v0.1';
+$ctl->SKIN_BASE = $config->url_prefix .'/skins/ugly_v0.1';
 
 ///  Make scoped_include() keep the $stage var
 $config->scope_global_vars[] = 'stage';

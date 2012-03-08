@@ -28,6 +28,7 @@ class Ansible__Stage {
 
 	public $project_base = null;
 	public $safe_base = null;
+	public $operation_tmp_base = '{SAFE_BASE}/tmp';
 	public $db_file_name = 'ansible_db.sq3';
 	public $db_file_path = '{PROJECT_BASE}/{DB_FILE_NAME}';
 	public $db_dsn = 'sqlite:{DB_FILE_PATH}';
@@ -111,7 +112,7 @@ class Ansible__Stage {
 
 			###  Connect to the tags DB
 			$INIT_DB_NOW = false;
-			if ( ! empty($this->db_file_path) ) {
+			if ( strpos($this->db_dsn, 'sqlite') !== false && ! empty($this->db_file_path) ) {
 				if ( ! file_exists( $this->config('db_file_path') ) ) $INIT_DB_NOW = true;
     
 				###  Get an exclusive File_NFSLock on the DB file...
@@ -213,7 +214,7 @@ class Ansible__Stage {
 		}
 		if ( ! empty( $env ) ) {
 			return( $this->config('default_url_protocol') ."://".
-					( ! empty( $area->host ) ? $area->host : $_SERVER['HTTP_HOST'] ) . $stage->uri_prefix .'/change_env.php?env='. $env .'&redirect=/'. $action
+					( ! empty( $area->host ) ? $area->host : $_SERVER['HTTP_HOST'] ) . $this->url_prefix .'/change_env.php?env='. $env .'&redirect=/'. $action
 					. urlencode("?". $query_string )
 					);
 		}

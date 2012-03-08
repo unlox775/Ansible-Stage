@@ -8,14 +8,16 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     public $display_name = 'SVN';
     public $command_name = 'svn';
 
+	///  Check if we have done the once-per-session check
+	public $checked_revision_cache_expire_token = false;
+	public $revision_cache_expire_token = false;
+	public $checked_repository_root = false;
+	public $repository_root = false;
+ 
     #########################
     ###  Action Methods
 
     public function updateAction($project, $tag, $user) {
-
-		///  Check if we have done the once-per-session check
-		$checked_revision_cache_expire_token = false;
-		$revision_cache_expire_token = false;
 
         $individual_file_rev_updates = array();
 
@@ -216,6 +218,104 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
 				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
                 $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
+                END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+
+
+                              ###  Use HEAD:1 so we aren't limited to don't just get the revs up to the file's current rev
+#                bug("${cmd_prefix}svn log -r HEAD:1 \"$file\" 2>&1 | cat"); #exit;
+                $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
+				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
+
+				###  If we get "file not found" but the file does exist, then try again without the HEAD:1
+				###    NOTE: this MAY be misleading if there are revs after ours but before the file
+				###         was deleted.  We won't see those one...  SVN Sux!
+#                bug('Retrying?',$this->repo_cache['log'][$file], preg_match('/^svn: .*?(path not found)\s*$/s', $this->repo_cache['log'][$file]));
+				if ( preg_match('/^svn: .*?(is not under version control|path not found)\s*$/s', $this->repo_cache['log'][$file])
+					 && file_exists($this->stage->env()->repo_base ."/$file")
+					 ) {
+#                    bug('Retrying',$this->repo_cache['log'][$file] );
+					$this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg "$file" 2>&1 | cat`;
+#                    bug('Retried',$this->repo_cache['log'][$file]);
+				}
+				///  Dig into the log to get Deletion rev
+				else if ( preg_match('/^svn: .*?(is not under version control)\s*$/s', $this->repo_cache['log'][$file])
+						  && ! file_exists($this->stage->env()->repo_base ."/$file")
+						  ///  Only do this if the repo base exists...
+						  && is_dir( $this->stage->env()->repo_base )
+						  ) {
+					///  Find a parent dir that does exist...
+					$parent_dir = null;  $deleted_parents = array();
+					while( is_null( $parent_dir ) || ! is_dir( $this->stage->env()->repo_base ."/$parent_dir" ) ) {
+						if ( ! is_null( $parent_dir ) && $parent_dir != '.' ) $deleted_parents[] = $parent_dir;
+						$parent_dir = ( dirname( $parent_dir ) == DIRECTORY_SEPARATOR ? '.' : dirname( is_null( $parent_dir ) ? $file : $parent_dir ) );
+					}
+					
+#                    bug('Retrying',$this->repo_cache['log'][$file] );
+					$parent_verbose = `${cmd_prefix}svn log --verbose -r HEAD:1 --limit 50 "$parent_dir" 2>&1 | cat`;
+#                    bug('Parent Log', substr($parent_verbose,0,1000 ));
+					if ( preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $parent_verbose, $m, PREG_SET_ORDER) != 0 ) {
+#                        bug('REVS:', count($m), $m[0]);
+						$deleted_parents_pattern = empty( $deleted_parents ) ? '' : '|\Q'. join('\E|\Q', $deleted_parents) .'\E';
+						$pre_deletion_rev = null;  $deletion_entry = null;
+						foreach( $m as $entry ) {
+#                            bug( $entry[0], '@^\s+D\s(/trunk/\Q'. $file .'\E'. $deleted_parents_pattern .')\s*@m',
+#                                 preg_match('@^\s+D\s(/trunk/\Q'. $file .'\E'. $deleted_parents_pattern .')\s*@m', $entry[0]) );
+							if ( preg_match('@^\s+D\s(/trunk/\Q'. $file .'\E'. $deleted_parents_pattern .')\s*@m', $entry[0]) ) {
+								$pre_deletion_rev = $entry[1] - 1;
+								$deletion_entry = $entry[0];
+								break;
+							}
+						}
+						if ( ! empty( $pre_deletion_rev ) ) {
+
+							///  First check out a copy of it's parent directory
+							if ( ! is_dir( $this->stage->config('operation_tmp_base'). '/ansible' ) ) mkdir($this->stage->config('operation_tmp_base'). '/ansible', 0777, true);
+							$svn_path = $this->get_repository_root();
+							if ( is_dir( $this->stage->config('operation_tmp_base'). '/ansible') && ! empty( $svn_path ) ) {
+								///  Checkout an empty copy of it's parent
+								$cd_path = $this->stage->config('operation_tmp_base') .'/ansible/'. ( dirname($file) == DIRECTORY_SEPARATOR ? 'trunk' : basename( dirname($file) ) );
+								`rm -Rf "$cd_path"`;
+								$parent_checkout = $svn_path .( dirname($file) == DIRECTORY_SEPARATOR ? '' : DIRECTORY_SEPARATOR. dirname($file) );
+								$tmp_path = $this->stage->config('operation_tmp_base')
+#                                bug('CHEKOUT PARENT', "cd $tmp_path/ansible; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn co --depth empty -r $pre_deletion_rev \"$parent_checkout\" 2>&1 | cat");
+								$par_checkout = `cd "$tmp_path/ansible"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn co --depth empty -r $pre_deletion_rev "$parent_checkout" 2>&1 | cat`;
+#                                bug($par_checkout);
+
+								if ( is_dir( $cd_path ) ) {
+									///  Now, checkout an pre-deletion copy of this file
+									$file_basename = basename( $file );
+#                                    bug('GETTING UNDELETED FILE', "cd \"$cd_path\"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn update -r $pre_deletion_rev \"$file_basename\" 2>&1 | cat");
+									$up_justthisfile = `cd "$cd_path"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn update -r $pre_deletion_rev "$file_basename" 2>&1 | cat`;
+#                                    bug($up_justthisfile);
+
+									///  Now, get the log, up to just before the deletion
+#                                    bug('Retrying',$this->repo_cache['log'][$file], "cd \"$cd_path\"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn log $limit_arg \"$file_basename\" 2>&1 | cat" );
+									$this->repo_cache['log'][$file] = `cd "$cd_path"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn log $limit_arg "$file_basename" 2>&1 | cat`;
+#                                    bug('Retried',$this->repo_cache['log'][$file]);
+									
+									///  Remove the temp dir
+									`rm -Rf "$cd_path"`;
+									///  If dir still exists, then do our best to minimize the file space creep
+									if ( is_dir( $cd_path ) ) {
+										$up_to_remove = `cd "$cd_path"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn update -r HEAD "$file_basename" 2>&1 | cat`;
+#                                        bug("UP TO REMOVE", $up_to_remove);
+										
+										///  Move the checkout dir out of the way (since we can't delete)
+										$rand_filename = null;  while( is_null( $rand_filename ) || is_dir( $this->stage->config('operation_tmp_base') .'/ansible/'. $rand_filename ) ) $rand_filename = 'DELME__'. md5( rand(1, 1000000). $cd_path ); 
+										$mv_outoftheway = `mv "$cd_path" "$tmp_path/ansible/$rand_filename"`;
+#                                        bug("Move Out of the Way", $rand_filename, $mv_outoftheway);
+									}
+
+									///  Prepend the deletion entry, because SVN SuX and it doesn't EVER divulge this kind of log that we need...
+									$this->repo_cache['log'][$file] = $deletion_entry."\n".$this->repo_cache['log'][$file];
+#                                    bug("Adding deleted rev", $this->repo_cache['log'][$file]);
+								}
+							}
+						}
+					}
+				}
+				
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
@@ -488,30 +588,37 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 				else {
 					//  Then we Truncate the entire table...  (Or later we can add params to do this partially if people are using Ansible diffeerenly)
 					$rv = dbh_query_bind("TRUNCATE TABLE revision_cache");
-					bug('[ TRUNCATING REVISION CACHE ]');
+					if ( $_SERVER['REMOTE_ADDR'] == '10.1.2.116' ) bug('[ TRUNCATING REVISION CACHE ]');
 					///  Then continue, so we can store a new value...
 				}
 			}
 
 			///  If we got here then it means we need to get and store a new value
-
+			
 			///  Start out by getting an SVN Log...
 			$clog = $this->get_log($file);
+
 			///  Match
-			preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $clog, $m, PREG_PATTERN_ORDER);
+			$matches = preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $clog, $m, PREG_PATTERN_ORDER);
+			if ( ! empty( $matches ) ) {
 
-			///  Set it from the regex
-			$this->repo_cache[$cache_key][$file]['revisions']  = empty( $m ) ? array() : $m[1];
-			$this->repo_cache[$cache_key][$file]['committers'] = empty( $m ) ? array() : $m[2];
+				///  Set it from the regex
+				$this->repo_cache[$cache_key][$file]['revisions']  = empty( $m ) ? array() : $m[1];
+				$this->repo_cache[$cache_key][$file]['committers'] = empty( $m ) ? array() : $m[2];
 
-			/// Store it in the database if we can.  (the only reason we couldn't would be an uninitialize Repo or an error)
-			if ( $this->expire_token() !== false ) {
-				$rv = dbh_do_bind("INSERT INTO revision_cache ( file,expire_token,revisions,committers ) VALUES (?,?,?,?)",
-								  $file,
-								  $this->expire_token(), 
-								  join(',', $this->repo_cache[$cache_key][$file]['revisions']  ),
-								  join(',', $this->repo_cache[$cache_key][$file]['committers'] )
-								  );
+				/// Store it in the database if we can.  (the only reason we couldn't would be an uninitialize Repo or an error)
+				if ( $this->expire_token() !== false ) {
+					$rv = dbh_do_bind("REPLACE INTO revision_cache ( file,expire_token,revisions,committers ) VALUES (?,?,?,?)",
+									  $file,
+									  $this->expire_token(), 
+									  join(',', $this->repo_cache[$cache_key][$file]['revisions']  ),
+									  join(',', $this->repo_cache[$cache_key][$file]['committers'] )
+									  );
+				}
+			}
+			else {
+				if ( $_SERVER['REMOTE_ADDR'] == '10.1.2.116' ) 
+					bug("Invalid log output (did not match):", $file, $clog);
 			}
 
 		}
@@ -531,26 +638,45 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 			$this->checked_revision_cache_expire_token = true;
 
 			/// Quickest way to read the SVN address for the repo we are on (6th line of the entries file)...
-			$repo = $this->stage->env()->repo_base;
-			$svn_path = trim(`head -n5 "$repo/.svn/entries" | tail -n1`);
+            START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+			$svn_path = $this->get_repository_root();
 			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
 			$svn_info = shell_exec("${cmd_prefix}svn info \"$svn_path\" 2>&1 | cat");
+            END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 
 			///  The token, is the newest revision of the Repository root
 			if ( preg_match('/Revision:\s+(\d+)/', $svn_info, $m ) ) {
 				$this->revision_cache_expire_token = $m[1];
 			}
+
+			if ( empty( $this->revision_cache_expire_token ) ) bug( 'PROBLEM: SVN is returning no trunk base revision! (needed for cache expire token)',
+																	'SVN CMD:',"head -n5 \"$repo/.svn/entries\" | tail -n1",
+																	'SVN Path:', $svn_path,
+																	'SVN Output:', $svn_info,
+																	$this->stage->env()->repo_base
+																	);
 		}
 
-		if ( empty( $this->revision_cache_expire_token ) ) bug( 'PROBLEM: SVN is returning no trunk base revision! (needed for cache expire token)',
-																'SVN CMD:',"head -n5 \"$repo/.svn/entries\" | tail -n1",
-																'SVN Path:', $svn_path,
-																'SVN Output:', $svn_info,
-																$this->stage->env()->repo_base
-																);
 
 		return $this->revision_cache_expire_token;
 	}
+
+	public function get_repository_root() {
+        global $REPO_CMD_PREFIX;
+
+		///  If we haven't checked the expire token, check now
+		if ( ! $this->checked_repository_root ) {
+			///  Regardless, NOW, we've checked...
+			$this->checked_repository_root = true;
+
+			/// Quickest way to read the SVN address for the repo we are on (6th line of the entries file)...
+			$repo = $this->stage->env()->repo_base;
+			$this->repository_root = trim(`head -n5 "$repo/.svn/entries" | tail -n1`);
+		}
+
+		return $this->repository_root;
+	}
+
 
     #########################
     ###  Repo-wide actions

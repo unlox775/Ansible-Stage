@@ -32,7 +32,7 @@
         else if ( ! empty( $area['test_uri_regex'] ) ) $selected = preg_match($area['test_uri_regex'], $uri);
 		else                                           $selected = ( $env == $stage->env );
         $tmp[] = ( "<a href=\"". $stage->config('default_url_protocol') ."://". 
-                   ( ! empty( $area['host'] ) ? $area['host'] : $_SERVER['HTTP_HOST'] ) . $stage->uri_prefix .'/change_env.php?env='. $env .'&redirect=/'. basename($_SERVER['SCRIPT_NAME'])
+                   ( ! empty( $area['host'] ) ? $area['host'] : $_SERVER['HTTP_HOST'] ) . $stage->url_prefix .'/change_env.php?env='. $env .'&redirect=/'. basename($_SERVER['SCRIPT_NAME'])
                    . urlencode("?". $query_string) ."\">".  ($selected ? "<b>" : "") . $area['label'] ."</b></a>"
                    );
     }
@@ -46,7 +46,7 @@
         else if ( ! empty( $area['test_uri_regex'] ) ) $selected = preg_match($area['test_uri_regex'], $uri);
 		else                                           $selected = ( $env == $stage->env );
         $tmp[] = ( "<a href=\"". $stage->config('default_url_protocol') ."://". 
-                   ( ! empty( $area['host'] ) ? $area['host'] : $_SERVER['HTTP_HOST'] ) . $stage->uri_prefix .'/change_env.php?env='. $env .'&redirect=/'. basename($_SERVER['SCRIPT_NAME'])
+                   ( ! empty( $area['host'] ) ? $area['host'] : $_SERVER['HTTP_HOST'] ) . $stage->url_prefix .'/change_env.php?env='. $env .'&redirect=/'. basename($_SERVER['SCRIPT_NAME'])
                    . urlencode("?". $query_string) ."\">".  ($selected ? "<b>" : "") . $area['label'] ."</b></a>"
                    );
     }

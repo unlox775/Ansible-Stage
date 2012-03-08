@@ -23,6 +23,7 @@ class Stark__Controller {
 	public $CONTROLLER_ROOT_NAME = 'root';
 	public $CONTROLLER_PRELOAD_LIBS = array();
 	public $scope_global_vars = array('ctl','controller');
+	public $url_prefix = '/';
 
 	///  Debugging Params
 	public $STARK_PROFILING = false;
@@ -31,7 +32,7 @@ class Stark__Controller {
 		$this->path = $path;
 
 		///  Load the paths
-		//		foreach ( array('lib_path','config_path','controller_path','model_path') as $var ) {
+		//		foreach ( array('lib_path','config_path','controller_path','model_path','url_prefix') as $var ) {
 		///  HACK until we get Stark__Extend written
 		foreach ( array_keys($path_config) as $var ) {
 			if ( isset( $path_config[ $var ] ) ) $this->$var = $path_config[ $var ];
@@ -107,6 +108,10 @@ class Stark__Controller {
 		///  Add CONTROLLER_DEFAULT_INDEX if it ends with a /
 		if ( preg_match('/\\'. DIRECTORY_SEPARATOR .'$/',$path) ) $path .= $this->CONTROLLER_DEFAULT_INDEX;
 
+		///  Hack off the URL Prefix
+		if ( $this->url_prefix != DIRECTORY_SEPARATOR && substr($path, 0, strlen($this->url_prefix)) == $this->url_prefix )
+			$path = substr($path, strlen($this->url_prefix));
+
 		///  Get the path name
 		$page = basename($path);
 		if ( ! empty( $this->CONTROLLER_PAGE_SUFFIX_REGEX ) ) $page = preg_replace($this->CONTROLLER_PAGE_SUFFIX_REGEX, '', $page);
@@ -131,7 +136,7 @@ class Stark__Controller {
 		if ( empty( $orig_path ) ) $orig_path = $path;
 
 		///  Run the Parent's first
-		if ( dirname( dirname( $path ) ) != dirname( $path ) ) {
+		if ( dirname( dirname( $path ) ) != dirname( $path ) && dirname( $path ) != $this->url_prefix ) {
 			$this->run_directory_handlers( dirname( $path ), null, $orig_path );
 		}
 

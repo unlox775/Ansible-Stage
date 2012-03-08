@@ -160,7 +160,7 @@ class Ansible__actions extends Stark__Controller__Base {
 		if ( empty($s_esc) ) $s_esc = '';
 		if ( empty($e_esc) ) $e_esc = '';
 		
-		$tag = "$e_esc<a href=\"". $this->ctl->stage->repo()->url_prefix ."/actions/diff.php?from_rev=". $this->ctl->stage->repo()->get_prev_rev($file, $rev) ."&to_rev=". $rev ."&file=". urlencode($file) ."\">$s_esc";
+		$tag = "$e_esc<a href=\"". $this->ctl->stage->url_prefix ."/actions/diff.php?from_rev=". $this->ctl->stage->repo()->get_prev_rev($file, $rev) ."&to_rev=". $rev ."&file=". urlencode($file) ."\">$s_esc";
 		return $tag . $str ."$e_esc</a>$s_esc";
 	}
 	

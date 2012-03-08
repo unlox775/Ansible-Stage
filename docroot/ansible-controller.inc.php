@@ -4,9 +4,10 @@
 $lib_path            = dirname(__FILE__) .'/lib';
 $ansible_config_path = dirname(__FILE__) .'/ansible-config.inc.php';
 
-///  You shouldn't have to change this...
-///    This lets ansible create URI absolute paths...
-$ansible_uri_prefix = dirname($_SERVER['SCRIPT_NAME']) == DIRECTORY_SEPARATOR ? '' : dirname($_SERVER['SCRIPT_NAME']);
+///  You may need to change this if:
+///    1) The path from the DOCUMENT_ROOT to this file crosses a symbilc link
+///    AND 2) the ansible path is NOT the DOCUMENT_ROOT
+$url_prefix = $_SERVER['DOCUMENT_ROOT'] != substr(dirname(__FILE__),0,strlen($_SERVER['DOCUMENT_ROOT'])) ? '' : substr(dirname(__FILE__),strlen($_SERVER['DOCUMENT_ROOT']));
 										 
 /// Include the main Stark Controller (in the lib dir as to be upgradeable)
 include($lib_path .'/Ansible/docroot/ansible-controller.inc.php');

@@ -10,10 +10,10 @@ class Ansible__root extends Stark__Controller__Base {
 		///  Read the env
 		if ( ! empty( $_SESSION['env'] ) ) $ctl->stage->env = $_SESSION['env'];
 		///  Of if it's not set, bounce them to where they can choose an ENV
-		else if ( $path    != $ctl->url_prefix.'/index.php'
-				  && $path != $ctl->url_prefix.'/change_env.php' 
+		else if ( $path    != $ctl->stage->url_prefix.'/index.php'
+				  && $path != $ctl->stage->url_prefix.'/change_env.php' 
 				  ) {
-			$ctl->redirect($ctl->url_prefix.'/index.php');
+			$ctl->redirect($ctl->stage->url_prefix.'/index.php');
 		}
 
 		///  All dir handlers must return true or it will give a 403: Forbidden
@@ -26,7 +26,6 @@ class Ansible__root extends Stark__Controller__Base {
 	}
 	
 	public function change_env_page($ctl) {
-
 		if ( ! empty( $_REQUEST['env'] ) ) {
 			$_SESSION['env'] = $_REQUEST['env'];
 			$ctl->stage->env = $_SESSION['env']; # probably unneccesary
@@ -305,6 +304,27 @@ DELAY
 */
 ));
 
+
+			###  Other Projects Sharing files
+			$other_projects = array();
+			foreach ( $ctl->stage->get_projects() as $pname ) {
+				if ( empty( $pname ) || $pname == $project->project_name ) continue;
+
+				$other_project = new Ansible__Project( $pname, $ctl->stage, false );
+				if ( ! in_array( $other_project->get_group(), array( '00_none','01_staging','03_testing_done','04_prod_rollout_prep' ) ) )
+					continue;
+
+				foreach ( $files as $our_file ) {
+					foreach ( $other_project->get_affected_files() as $their_file ) {
+						if ( $our_file == $their_file ) {
+							if ( ! isset( $other_projects[ $pname ] ) ) $other_projects[ $pname ] = array();
+							$other_projects[ $pname ][] = $their_file;
+						}
+					}
+				}
+			}
+
+
 			$file_lines[] = $file_line;
 		}
 			
@@ -312,6 +332,7 @@ DELAY
 					  'previous_command' => $previous_command,
 					  'files'            => $file_lines,
 					  'locally_modified' => $locally_modified,
+					  'other_projects'   => $other_projects,
 					 );
 	}
 
