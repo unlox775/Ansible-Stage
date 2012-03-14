@@ -25,6 +25,7 @@ export SYSTEM_PROJECT_BASE=/sandbox/projects
 #export SYSTEM_SVN_BASE_REGEXP="$HOME/public_html/.sites/.sandbox/\w+/myproject"
 export SYSTEM_SVN_BASE="$HOME/sandbox/dave/myproject"
 export      P_BIN_PATH=$SYSTEM_CVS_BASE/admin/bin
+export ANSIBLE_CONFIG_PATH=/path/to/ansible/docroot/ansible-config.inc.php
 
 ###  Paths to SVN
 # export PATH="$SYSTEM_BIN_PATH:$PATH"

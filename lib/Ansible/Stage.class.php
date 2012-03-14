@@ -75,22 +75,6 @@ class Ansible__Stage {
 		require( $config_path );
 	}
 
-	public function get_projects() {
-		$tmp = func_get_args();
-		$project_base = $this->config('project_base');
-		$ignore_regex = $this->config('project_base_ignore_regexp');
-		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
-		return explode("\n",`ls -1 $project_base | grep -E -v '^(archive|logs|$ignore_regex)\$'`);
-	}
-
-	public function get_archived_projects() {
-		$tmp = func_get_args();
-		$project_base = $this->config('project_base');
-		$ignore_regex = $this->config('project_base_ignore_regexp');
-		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
-		return explode("\n",`ls -1 $project_base/archive | grep -E -v '^($ignore_regex)\$'`);
-	}
-
 	public function repo() {
 		###  Cache
 		if ( empty( $this->__repo ) ) {
@@ -227,6 +211,73 @@ class Ansible__Stage {
 	public function onAlpha() { return( $this->env()->role != 'beta' && $this->env()->role != 'live' ); }
 	public function onBeta()  { return( $this->env()->role == 'beta'  ); }
 	public function onLive()  { return( $this->env()->role == 'live'  ); }
+
+
+	#########################
+	###  Projects Access
+
+	public function get_projects() {
+		$tmp = func_get_args();
+		$project_base = $this->config('project_base');
+		$ignore_regex = $this->config('project_base_ignore_regexp');
+		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
+		return explode("\n",`ls -1 $project_base | grep -E -v '^(archive|logs|$ignore_regex)\$'`);
+	}
+
+	public function get_archived_projects() {
+		$tmp = func_get_args();
+		$project_base = $this->config('project_base');
+		$ignore_regex = $this->config('project_base_ignore_regexp');
+		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
+		return explode("\n",`ls -1 $project_base/archive | grep -E -v '^($ignore_regex)\$'`);
+	}
+
+	public function get_projects_by_group($category = 'active') {
+		require_once($this->config('lib_path'). '/Ansible/Project.class.php');
+
+		###  Project Groups
+		$groups = array( '00_none'              => 'New Projects - In Development',
+						 '01_staging'           => 'Step 1 : Updated to Staging for Testing',
+						 '03_testing_done'      => 'Step 3 : Testing Done - Tagged as PROD_TEST',
+						 '04_prod_rollout_prep' => 'Step 4 : Production tagged as PROD_SAFE',
+						 '05_rolled_out'        => 'Step 5 : Rolled out to Production',
+						 );
+
+		$projects = array();
+		$category_list = $category == 'archived' ? $this->get_archived_projects() : $this->get_projects();
+		$file_lines = array();
+		foreach ( $category_list as $project_name ) {
+			if ( empty( $project_name ) ) continue;
+
+			$project = new Ansible__Project( $project_name, $this, ($category == 'archived') );
+
+			###  Get more info from ls
+			$ls = ( is_dir($SYSTEM_PROJECT_BASE)) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
+			#        $stat = (is_dir($SYSTEM_PROJECT_BASE)) ? ($project->get_stat()) : ();
+			$stat = $project->get_stat();
+
+			$project_info = array( 'name'                => $project_name,
+								   'creator'             => ($ls[2] || '-'),
+								   'group'               => ($ls[3] || '-'),
+								   'mod_time'            => ($stat ? $stat[9] : 0),
+								   'mod_time_display'    => ($stat ? date('n/j/y',$stat[9])  : '-'),
+								   'has_summary'         => ( (is_dir($SYSTEM_PROJECT_BASE))
+															  ? ( $project->file_exists( "summary.txt" ) ? "YES" : "")
+															  : '-'
+															  ),
+								   'aff_file_count'      => count($project->get_affected_files()),
+								   );
+        
+			//  Make array key unique, but sortable
+			$projects[ $project->get_group() ][ sprintf("%011d",$project_info['mod_time']) .'_'.$project_name ] = $project_info;
+		}
+
+		///  Nested Sort
+		ksort($projects, SORT_NUMERIC);
+		foreach( $projects as $group => $x ) { ksort($projects[ $group ], SORT_NUMERIC);  $projects[ $group ] = array_reverse( $projects[ $group ] ); }
+
+		return( array($projects, $groups) );
+	}
 
 
 	#########################

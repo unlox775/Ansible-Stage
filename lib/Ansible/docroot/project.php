@@ -13,7 +13,7 @@
 	<?php require($stage->extend->run_hook('command_output', 10)) ?>
 <?php } ?>
 
-<h2>Project: <?php echo $view->project->project_name ?></h2>
+<h2>Project: <?php echo $view->project->project_name ?> [<?= substr($view->project->get_group(), 0, 2) ?>]</h2>
 
 <!-- /////  Actions  ///// -->
 <?php $view->scoped_include( './project_actions.inc.php', array('project') ) ?>
@@ -60,7 +60,13 @@
 	<?php
 	  $content = array();
 	  foreach ( $view->other_projects as $pname => $their_files ) {
-		  $content[] = '<a href="project.php?pname='. urlencode($pname) .'" title="Sharing '. count($their_files) .' Files:'. "\n". join("\n", $their_files) .'">'. $pname .'</a>';
+          $project = $their_files['project'];  unset( $their_files['project'] );
+		  $content[] = ( '<a href="project.php?pname='. urlencode($pname)
+						 . '" title="Sharing '. count($their_files) .' Files:'. "\n". join("\n", $their_files) .'">'
+						 . $pname
+						 . ' ['. substr($project->get_group(), 0, 2) .']'
+						 . '</a>'
+                         );
 	  }
 	  echo join(', ', $content);
 	?>

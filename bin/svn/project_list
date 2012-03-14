@@ -1,23 +1,42 @@
-#!/bin/bash -norc
+#!/usr/bin/php
+<?php
 
 #########################
 ###  project_list
 #
-# Version : $Id: project_list,v 1.1 2011/05/23 15:57:29 dave Exp $
+# Version : $Id: project_list,v 1.3 2011/05/23 15:11:47 dave Exp $
 #
 #########################
 
 #########################
 ###  Configuration, Setup
 
-# ###  Globals
-# export SYSTEM_PROJECT_BASE='/sandbox/projects'
+require_once(dirname(__FILE__) .'/../../lib/Ansible/Stage.class.php');
+$show_groups = in_array('-g',$argv);
+$suppress_header = in_array('-q',$argv);
 
 
 #########################
 ###  Main Runtime
 
-echo "  "
-echo "All Active Projects:"
-echo "--------------------"
-ls -1 $SYSTEM_PROJECT_BASE | grep -E -v '^archive$'
+$stage = new Ansible__Stage( '',
+							 array( 'lib_path'    => dirname(__FILE__) .'/../../lib',
+									'config_path' => (isset($_SERVER['ANSIBLE_CONFIG_PATH']) ? $_SERVER['ANSIBLE_CONFIG_PATH'] : dirname(__FILE__) .'/../../docroot/ansible-config.inc.php'),
+									'url_prefix'  => '',
+									)
+							 );
+
+if ( ! $suppress_header ) {
+	echo "\nAll Active Projects:\n";
+	echo "--------------------\n";
+}
+
+list($projects, $groups) = $stage->get_projects_by_group($category);
+foreach ( array_keys( $projects ) as $group ) {
+	foreach ( $projects[ $group ] as $project ) {
+		echo ( (($show_groups) ? ( isset( $groups[$group] ) ? $groups[$group] : $group ).'/' : '')
+			   . $project['name']
+			   . "\n"
+			   );
+	}
+}

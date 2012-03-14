@@ -54,44 +54,7 @@ class Ansible__root extends Stark__Controller__Base {
 	public function list_page($ctl) {
 		$category = ( ! empty( $_REQUEST['cat'] ) && $_REQUEST['cat'] == 'archived' ) ? 'archived' : 'active';
 
-		###  Project Groups
-		$groups = array( '00_none'              => 'New Projects / In Development',
-						 '01_staging'           => 'Step 1 : Updated to Staging for Testing',
-						 '03_testing_done'      => 'Step 3 : Testing Done - Tagged as PROD_TEST',
-						 '04_prod_rollout_prep' => 'Step 4 : Production tagged as PROD_SAFE',
-						 '05_rolled_out'        => 'Step 5 : Rolled out to Production',
-						 );
-
-		$projects = array();
-		$category_list = $category == 'archived' ? $ctl->stage->get_archived_projects() : $ctl->stage->get_projects();
-		$file_lines = array();
-		foreach ( $category_list as $project_name ) {
-			if ( empty( $project_name ) ) continue;
-
-			$project = new Ansible__Project( $project_name, $ctl->stage, ($category == 'archived') );
-
-			###  Get more info from ls
-			$ls = ( is_dir($SYSTEM_PROJECT_BASE)) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
-			#        $stat = (is_dir($SYSTEM_PROJECT_BASE)) ? ($project->get_stat()) : ();
-			$stat = $project->get_stat();
-
-			$project_info = array( 'name'                => $project_name,
-								   'creator'             => ($ls[2] || '-'),
-								   'group'               => ($ls[3] || '-'),
-								   'mod_time'            => ($stat ? $stat[9] : 0),
-								   'mod_time_display'    => ($stat ? date('n/j/y',$stat[9])  : '-'),
-								   'has_summary'         => ( (is_dir($SYSTEM_PROJECT_BASE))
-															  ? ( $project->file_exists( "summary.txt" ) ? "YES" : "")
-															  : '-'
-															  ),
-								   'aff_file_count'      => count($project->get_affected_files()),
-								   );
-        
-			//  Make array key unique, but sortable
-			$projects[ $project->get_group() ][ sprintf("%011d",$project_info['mod_time']) .'_'.$project_name ] = $project_info;
-		}
-
-		ksort($projects, SORT_NUMERIC);
+		list($projects, $groups) = $ctl->stage->get_projects_by_group($category);
 
 		return( array( 'category' => $category,
 					   'projects' => $projects,
@@ -317,7 +280,7 @@ DELAY
 				foreach ( $files as $our_file ) {
 					foreach ( $other_project->get_affected_files() as $their_file ) {
 						if ( $our_file == $their_file ) {
-							if ( ! isset( $other_projects[ $pname ] ) ) $other_projects[ $pname ] = array();
+							if ( ! isset( $other_projects[ $pname ] ) ) $other_projects[ $pname ] = array('project' => $other_project);
 							$other_projects[ $pname ][] = $their_file;
 						}
 					}

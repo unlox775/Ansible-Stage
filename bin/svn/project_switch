@@ -3,7 +3,7 @@
 #########################
 ###  project_switch
 #
-# Version : $Id: project_switch,v 1.1 2011/05/23 15:57:29 dave Exp $
+# Version : $Id: project_switch,v 1.3 2011/05/23 15:11:47 dave Exp $
 #
 #########################
 
@@ -21,6 +21,10 @@ if ( $ENV{SYSTEM_SVN_BASE_REGEXP} ) {
     ( $ENV{SYSTEM_SVN_BASE} ) = ( `tcsh -f -c pwd` =~ /^($ENV{SYSTEM_SVN_BASE_REGEXP})/ );
 }
 (my $SYSTEM_SVN_BASE = $ENV{SYSTEM_SVN_BASE} || "$ENV{HOME}/dev" ) =~ s@/+$@@;
+
+
+#########################
+###  Main Runtime
 
 ###  Get the Project file
 my $curr_project;
@@ -49,13 +53,10 @@ else {
 }
 
 ###  Check out the project
-if ( ! -w "$SYSTEM_PROJECT_BASE/$curr_project" ) {
-    die "Can't switch to project: permission denied\n";
-}
+#if ( ! -w "$SYSTEM_PROJECT_BASE/$curr_project" ) {
+#    die "Can't switch to project: permission denied\n";
+#}
 
-
-#########################
-###  Main Runtime
 
 `echo -n $curr_project > $SYSTEM_SVN_BASE/../.current_project`;
 warn "Switched to project : $curr_project\n";
@@ -74,52 +75,59 @@ exit 0;
 sub choose_project {
 
     ###  Get the list of projects
-    my @projects = grep {$_ ne 'archive' && $_ ne 'logs'} sort map { 
-        s/^.*\///g;
-        
-        $_;
-    } <$SYSTEM_PROJECT_BASE/*>;
+    my %projects;
+	foreach ( split(/\n/, `project_list -q -g`) ) {
+		my ( $group, $project_name ) = split(m@/@, $_, 2);
+		$projects{$group} ||= [];
+		push @{ $projects{$group} }, $project_name;
+	}
     
     print "\nProjects to Switch to:\n\n";
-    print "\t" . join( "\n\t",
-                       map { ($_ + 1) . ".\t" . $projects[$_]; }
-#                        grep { 
-#                            ###  Don't Filter out any if we're being called by 
-#                            ###    an 'all' version of this command
-#                            ( $0 =~ /all$/s ) ||
-# 
-#                                ###  Filter out completed projects
-#                                ( 
-#                                  ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/complete_summary.txt" ) &&
-#                                  ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/completed_summary.txt" ) &&
-#                                  ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/finish_summary.txt" ) &&
-#                                  ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/finished_summary.txt" ) &&
-#                                  ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/cancel_summary.txt" ) &&
-#                                  ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/cancelled_summary.txt" )
-#                                )
-#                            }
-        ( 0 .. $#projects )
-       ) . "\n\n";
+	my @all_projects;
+	my $base = 0;
+	foreach my $group ( sort keys( %projects ) ) {
+    	print "\t" . $group ."\n";
+    	print "\t\t" . join( "\n\t\t",
+    	                   map { ($base + $_ + 1) . ".\t" . $projects{$group}[$_]; }
+#   	                     grep { 
+#   	                         ###  Don't Filter out any if we're being called by 
+#   	                         ###    an 'all' version of this command
+#   	                         ( $0 =~ /all$/s ) ||
+# 		
+#   	                             ###  Filter out completed projects
+#   	                             ( 
+#   	                               ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/complete_summary.txt" ) &&
+#   	                               ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/completed_summary.txt" ) &&
+#   	                               ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/finish_summary.txt" ) &&
+#   	                               ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/finished_summary.txt" ) &&
+#   	                               ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/cancel_summary.txt" ) &&
+#   	                               ( ! -e "$SYSTEM_PROJECT_BASE/$projects[$_]/cancelled_summary.txt" )
+#   	                             )
+#   	                         }
+    	    ( 0 .. $#{ $projects{$group} } )
+    	   ) . "\n\n";
+		push @all_projects, @{ $projects{$group} };
+		$base += @{ $projects{$group} };
+	}
     
     ###  Get their selection
     $curr_project = Complete( 
         "Which project do you want to switch to: ", 
         [ 
-          @projects,
-          ( 1 .. scalar @projects ),
+          @all_projects,
+          ( 1 .. scalar @all_projects ),
         ]
         );
 
     ###  If they chose a number
     if ( $curr_project =~ /^\d+$/
-         && $projects[$curr_project - 1]
+         && $all_projects[$curr_project - 1]
        ) {
-        $curr_project = $projects[$curr_project - 1];
+        $curr_project = $all_projects[$curr_project - 1];
     }
     ###  Otherwise a bad name!
-    elsif ( ! grep {$_ eq $curr_project} @projects ) {
+    elsif ( ! grep {$_ eq $curr_project} @all_projects ) {
         warn "Missing or bad project name.\n";
-
-        exec('project_list');
+		exit;
     }
 }

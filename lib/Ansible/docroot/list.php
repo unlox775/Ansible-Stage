@@ -5,9 +5,6 @@
 <h3>List of <?= ( $view->category == 'archived' ? 'Archived' : '' ) ?> Projects</h3>
 
 <?php foreach ( array_keys( $view->projects ) as $group ) { ?>
-	<?php
-	  ksort($view->projects[ $group ], SORT_NUMERIC);  $view->projects[ $group ] = array_reverse( $view->projects[ $group ] );
-	?>
 	<h2><?= ( isset( $view->groups[$group] ) ? $view->groups[$group] : $group ) ?></h2>
 	<table width=100%>
 		<tr>

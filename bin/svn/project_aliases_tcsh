@@ -24,7 +24,8 @@ setenv   SYSTEM_PROJECT_BASE $HOME/sandbox/projects
 ###  SVN Repo Settings
 #setenv SYSTEM_SVN_BASE_REGEXP "$HOME/public_html/.sites/.sandbox/\w+/myproject"
 setenv SYSTEM_SVN_BASE $HOME/sandbox/dave/myproject
-setenv            P_BIN_PATH $SYSTEM_CVS_BASE/admin/bin
+setenv            P_BIN_PATH $SYSTEM_SVN_BASE/admin/bin
+setenv ANSIBLE_CONFIG_PATH /path/to/ansible/docroot/ansible-config.inc.php
 
 ###  Paths to SVN
 # setenv PATH "$SYSTEM_BIN_PATH":"$PATH"
