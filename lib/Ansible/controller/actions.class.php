@@ -67,6 +67,7 @@ class Ansible__actions extends Stark__Controller__Base {
 	###  File Operation Actions
 
 	public function update_page($ctl) {
+		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		if ( $ctl->stage->read_only_mode() ) return trigger_error("Permission Denied", E_USER_ERROR);
 		if ( empty( $_REQUEST['pname'] ) ) return trigger_error("Missing project_name", E_USER_ERROR);
 		if ( empty( $_REQUEST['tag']   ) ) return trigger_error("Missing tag", E_USER_ERROR);
@@ -82,8 +83,12 @@ class Ansible__actions extends Stark__Controller__Base {
 			$project->set_group($_REQUEST['set_group']);
 		}
 
+		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 5); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();
+
 		###  Run the action
 		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $project, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+
+		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
 		return $this->generic_cmd_action_return($ctl, 'project.php', $project, $cmd, $command_output);
 	}

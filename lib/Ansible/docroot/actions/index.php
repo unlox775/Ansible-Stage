@@ -44,7 +44,7 @@ $view->scoped_include( $_SERVER['DOCUMENT_ROOT'] . $ctl->SKIN_BASE .'/inc/header
 <?php require($stage->extend->run_hook('command_output', 0)) ?>
 <font color="red">
 	<h3>Command Output (Too Large for redirect)</h3>
-	<p><a href=\"javascript:history.back()\">Go Back</a></p>
+	<p><a href="javascript:history.back()">Go Back</a></p>
 	<hr/>
 	<xmp>> <?php echo $view->cmd ."\n\n". $view->command_output ?></xmp>
 </font>

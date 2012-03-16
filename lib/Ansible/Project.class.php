@@ -202,7 +202,7 @@ class Ansible__Project {
         
         ///  Restore to the backup
         $archived = $this->archived ? 'archive/' : '';
-        touch($this->stage->config('project_base') ."/$archived$this->project_name", $this->mod_time_bak);
+        @touch($this->stage->config('project_base') ."/$archived$this->project_name", $this->mod_time_bak);
         
         return true;
     }

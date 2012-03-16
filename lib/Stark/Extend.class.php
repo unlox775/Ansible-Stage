@@ -260,7 +260,7 @@ class Stark__Extend {
 		$return = $this->dirname_file. '/Extend/run_hooks.inc.php';
 		return $return;
 	}
-	public function x($area, $sequence_from, $sequence_to = null) { $this->run_hook_params = array( $area, $sequence_from, $sequence_to ); }
+	public function x($area, $sequence_from, $sequence_to = null) { $this->run_hook_params = array( $area, $sequence_from, $sequence_to );  return $this; }
 	public function rhni(&$defined_vars, $run_hook_params = null) {
         if ( is_null( $run_hook_params ) ) $run_hook_params = $this->run_hook_params;
 		call_user_func_array(array($this, 'run_hook'), $run_hook_params);
