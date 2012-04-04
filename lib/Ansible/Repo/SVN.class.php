@@ -566,6 +566,9 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
         $cache_key = 'all_log_revs';
 
+		if ( empty( $file ) && ! is_numeric( $file ) )
+			return( array( array(), array() ) );
+
 		if ( ! isset( $this->repo_cache[$cache_key][$file] ) ) {
 
 			///  Check if this is cached already
@@ -608,12 +611,23 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
 				/// Store it in the database if we can.  (the only reason we couldn't would be an uninitialize Repo or an error)
 				if ( $this->expire_token() !== false ) {
-					$rv = dbh_do_bind("REPLACE INTO revision_cache ( file,expire_token,revisions,committers ) VALUES (?,?,?,?)",
-									  $file,
-									  $this->expire_token(), 
-									  join(',', $this->repo_cache[$cache_key][$file]['revisions']  ),
-									  join(',', $this->repo_cache[$cache_key][$file]['committers'] )
-									  );
+					if ( strpos($this->stage->config('db_dsn'), 'mysql') !== false ) {
+						$rv = dbh_do_bind("REPLACE INTO revision_cache ( file,expire_token,revisions,committers ) VALUES (?,?,?,?)",
+										  $file,
+										  $this->expire_token(), 
+										  join(',', $this->repo_cache[$cache_key][$file]['revisions']  ),
+										  join(',', $this->repo_cache[$cache_key][$file]['committers'] )
+										  );
+					}
+					else {
+						$rv = dbh_do_bind("DELETE FROM revision_cache WHERE file = ?", $file);
+						$rv = dbh_do_bind("INSERT INTO revision_cache ( file,expire_token,revisions,committers ) VALUES (?,?,?,?)",
+										  $file,
+										  $this->expire_token(), 
+										  join(',', $this->repo_cache[$cache_key][$file]['revisions']  ),
+										  join(',', $this->repo_cache[$cache_key][$file]['committers'] )
+										  );
+					}
 				}
 			}
 			else {
