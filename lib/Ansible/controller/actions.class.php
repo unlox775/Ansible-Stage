@@ -35,10 +35,10 @@ class Ansible__actions extends Stark__Controller__Base {
 	###  Project Management Actions
 
 	public function archive_project_page ($ctl) {
-		if ( ! empty( $_REQUEST['pname'] ) ) {
-			if ( preg_match('/[^\w\_\-]/', $_REQUEST['pname']) ) 
+		if ( ! empty( $_REQUEST['p'] ) ) {
+			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-]/', $_REQUEST['p']) ) 
 				return trigger_error("Please don't hack...", E_USER_ERROR);
-			$project = new Ansible__Project( $_REQUEST['pname'], $ctl->stage );
+			$project = new Ansible__Project( $_REQUEST['p'], $ctl->stage );
 			if ( $project->exists() && ! $project->archived() ) {
 				$user = ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous';
 				$project->archive($user);
@@ -49,10 +49,10 @@ class Ansible__actions extends Stark__Controller__Base {
 	}
 
 	public function unarchive_project_page ($ctl) {
-		if ( ! empty( $_REQUEST['pname'] ) ) {
-			if ( preg_match('/[^\w\_\-]/', $_REQUEST['pname']) ) 
+		if ( ! empty( $_REQUEST['p'] ) ) {
+			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-]/', $_REQUEST['p']) ) 
 				return trigger_error("Please don't hack...", E_USER_ERROR);
-			$project = new Ansible__Project( $_REQUEST['pname'], $ctl->stage, true );
+			$project = new Ansible__Project( $_REQUEST['p'], $ctl->stage, true );
 			if ( $project->exists() && $project->archived() ) {
 				$user = ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous';
 				$project->unarchive($user);
@@ -69,40 +69,40 @@ class Ansible__actions extends Stark__Controller__Base {
 	public function update_page($ctl) {
 		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		if ( $ctl->stage->read_only_mode() ) return trigger_error("Permission Denied", E_USER_ERROR);
-		if ( empty( $_REQUEST['pname'] ) ) return trigger_error("Missing project_name", E_USER_ERROR);
+		if ( empty( $_REQUEST['p'] ) ) return trigger_error("Missing project_name", E_USER_ERROR);
 		if ( empty( $_REQUEST['tag']   ) ) return trigger_error("Missing tag", E_USER_ERROR);
 		if ( preg_match('/[^\w\_\-\.]/', $_REQUEST['tag'], $m) 
 			 || ( ! empty( $_REQUEST['set_group']  ) && preg_match('/\W/', $_REQUEST['set_group']) )
 			 ) return trigger_error("Please don't hack...", E_USER_ERROR);
 
-		$project = new Ansible__Project( $_REQUEST['pname'], $ctl->stage );
-		if ( ! $project->exists() ) return trigger_error("Invalid project: ". $_REQUEST['pname'], E_USER_ERROR);
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
 
 		###  Set Group..
 		if ( ! empty( $_REQUEST['set_group'] ) ) {
-			$project->set_group($_REQUEST['set_group']);
+			foreach ( $projects as $project )
+				$project->set_group($_REQUEST['set_group']);
 		}
 
 		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 5); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();
 
 		###  Run the action
-		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $project, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 
 		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
-		return $this->generic_cmd_action_return($ctl, 'project.php', $project, $cmd, $command_output);
+		return $this->generic_cmd_action_return($ctl, 'project.php', $projects, $cmd, $command_output);
 	}
 
-	public function generic_cmd_action_return($ctl, $page, $project, $cmd, $command_output) {
+	public function generic_cmd_action_return($ctl, $page, $projects, $cmd, $command_output) {
         require($ctl->stage->extend->run_hook('command_output', -20));
 		$bounce_url = ( "../". $page ."?pid=". getmypid()
-						. (! empty( $project ) ? "&pname=". urlencode($project->project_name) : '' )
+						. (! empty( $projects ) ? '&'.$ctl->stage->get_projects_url($projects) : '' )
 						."&cmd=". urlencode(base64_encode(gzdeflate($cmd, 9)))
 						."&command_output=". urlencode(base64_encode(gzdeflate($command_output, 9)))
 						);
         require($ctl->stage->extend->run_hook('command_output', -25));
 		###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-		if ( strlen( $bounce_url ) > 2000 ) {
+		if ( 1 || strlen( $bounce_url ) > 2000 ) {
 			return( array( 'cmd' => $cmd,
 						   'command_output' => $command_output,
 						   ) );
@@ -117,24 +117,24 @@ class Ansible__actions extends Stark__Controller__Base {
 
 	public function tag_page($ctl) {
 		if ( $ctl->stage->read_only_mode() ) return trigger_error("Permission Denied", E_USER_ERROR);
-		if ( empty( $_REQUEST['pname'] ) ) return trigger_error("Missing project_name", E_USER_ERROR);
+		if ( empty( $_REQUEST['p'] ) ) return trigger_error("Missing project_name", E_USER_ERROR);
 		if ( empty( $_REQUEST['tag']   ) ) return trigger_error("Missing tag", E_USER_ERROR);
 		if ( preg_match('/[^\w\_\-\.]/', $_REQUEST['tag'], $m) 
 			 || ( ! empty( $_REQUEST['set_group']  ) && preg_match('/\W/', $_REQUEST['set_group']) )
 			 ) return trigger_error("Please don't hack...", E_USER_ERROR);
 
-		$project = new Ansible__Project( $_REQUEST['pname'], $ctl->stage );
-		if ( ! $project->exists() ) return trigger_error("Invalid project: ". $_REQUEST['pname'], E_USER_ERROR);
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
 
 		###  Set Group..
 		if ( ! empty( $_REQUEST['set_group'] ) ) {
-			$project->set_group($_REQUEST['set_group']);
+			foreach ( $projects as $project )
+				$project->set_group($_REQUEST['set_group']);
 		}
     
 		###  Run the action
-		list( $cmd, $command_output ) = $ctl->stage->repo()->tagAction( $project, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+		list( $cmd, $command_output ) = $ctl->stage->repo()->tagAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 
-		return $this->generic_cmd_action_return($ctl, 'project.php', $project, $cmd, $command_output);
+		return $this->generic_cmd_action_return($ctl, 'project.php', $projects, $cmd, $command_output);
 	}
 
 	public function full_log_page($ctl) {

@@ -17,80 +17,108 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     #########################
     ###  Action Methods
 
-    public function updateAction($project, $tag, $user) {
+    public function updateAction($projects, $tag, $user) {
 
         $individual_file_rev_updates = array();
+        $individual_file_rev_projects = array();
 
         ###  Target mode
         $target_mode_update = false;
         if ( $tag == 'Target' ) {
             $target_mode_update = true;
             $tag = 'HEAD';
-            ###  Read in the file tags CSV
-            $file_tags = $project->get_file_tags();
+
+
+            ###  Get the max file tag for files in more than one project
+            $file_tags = array();
+			foreach ( $projects as $project ) {
+				$tags = $project->get_file_tags();
+				foreach ( $project->get_affected_files() as $file ) {
+					if ( empty( $file_tags[ $file ] )
+						 ///  OR if this tag is "later" than the stored one
+						 || ( empty($tags[$file])   && $file_tags[ $file ] != 'HEAD' )
+						 || ( ! empty($tags[$file]) && is_numeric( $tags[$file] ) && $file_tags[ $file ] != 'HEAD' && $file_tags[ $file ] < $tags[$file] )
+						 ) $file_tags[ $file ] = isset( $file_tags[ $file ] ) ? $file_tags[ $file ] : 'HEAD';
+				}
+			}
+			foreach ( $file_tags as $file => $tag ) if ( $tag == 'HEAD' ) unset($file_tags[$file]);
         }
 
         ###  Prepare for a MASS HEAD update if updating to HEAD
         $doing_indiv_dir_update = array();
+		$mass_head_update_files = array();
+		$mass_head_update_projects = array();
         if ( $tag == 'HEAD' ) {
-            $mass_head_update_files = array();
-            foreach ( $project->get_affected_files() as $file ) {
-                if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                     ###  Skip this file if in TARGET MODE and it's on the list
-                     || ( $target_mode_update && array_key_exists( $file, $file_tags) )
-                     ) continue;
-                $mass_head_update_files[] = $file;
-            }
+			foreach ( $projects as $project ) {
+				foreach ( $project->get_affected_files() as $file ) {
+					if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+						 ###  Skip this file if in TARGET MODE and it's on the list
+						 || ( $target_mode_update && isset( $file_tags[ $file ]) )
+						 ) continue;
+					$mass_head_update_files[$file] = $file;
+					$mass_head_update_projects[$project->project_name] = $project;
+				}
+			}
 
             ###  Get Target Mode files
             if ( $target_mode_update ) {
-                foreach ( $project->get_affected_files() as $file ) {
-                    if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                         ) continue;
-                    if ( ! empty( $file_tags[ $file ] ) && abs( floor( $file_tags[ $file ] ) ) == $file_tags[ $file ] ) 
-                        $individual_file_rev_updates[] = array( $file, $file_tags[ $file ] );
-                }
+				foreach ( $projects as $project ) {
+					foreach ( $project->get_affected_files() as $file ) {
+						if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+							 ) continue;
+						if ( ! empty( $file_tags[ $file ] ) && abs( floor( $file_tags[ $file ] ) ) == $file_tags[ $file ] ) { 
+							$individual_file_rev_updates[$file] = array( $file, $file_tags[ $file ] );
+							$individual_file_rev_updates[$file][$project->project_name] = $project;
+						}
+					}
+				}
             }
         }
         ###  All other tags, do individual file updates
         else {
-            foreach ( $project->get_affected_files() as $file ) {
-                if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                     ) continue;
+			foreach ( $projects as $project ) {
+				foreach ( $project->get_affected_files() as $file ) {
+					if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+						 ) continue;
 
-                ###  Get the tag rev for this file...
-                $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-                $rev = $sth->fetch(PDO::FETCH_NUM);
-                $sth->closeCursor();
-                if ( ! empty( $rev ) ) { # I guess if there isn't a rev, we should REMOVE THE FILE?  Maybe later...
+					###  Get the tag rev for this file...
+					$sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+					$rev = $sth->fetch(PDO::FETCH_NUM);
+					$sth->closeCursor();
+					if ( ! empty( $rev ) ) { # I guess if there isn't a rev, we should REMOVE THE FILE?  Maybe later...
 
-                    $dir_test = $file;
-                    ###  Before we do Inidividual Tag updates on files the containing dirs must exist
-                    $dirs_to_update = array();
-                    while ( ! empty( $dir_test )
-                            && ! is_dir( dirname( $this->stage->env()->repo_base ."/$dir_test" ) )
-                            && $this->stage->env()->repo_base != dirname( $this->stage->env()->repo_base ."/$dir_test" )
-                            && ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
-                            ) {
-                        $dir = dirname($dir_test);
-                        $dirs_to_update[] = $dir;
-                        $doing_indiv_dir_update[$dir] = true;
+						$dir_test = $file;
+						###  Before we do Inidividual Tag updates on files the containing dirs must exist
+						$dirs_to_update = array();
+						while ( ! empty( $dir_test )
+								&& ! is_dir( dirname( $this->stage->env()->repo_base ."/$dir_test" ) )
+								&& $this->stage->env()->repo_base != dirname( $this->stage->env()->repo_base ."/$dir_test" )
+								&& ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
+								) {
+							$dir = dirname($dir_test);
+							$dirs_to_update[] = $dir;
+							$doing_indiv_dir_update[$dir] = true;
 
-                        $dir_test = $dir; // iterate backwards
-                    }
-                    ///  Need to add in parent-first order
-                    ///    NOTE: we only need to do the parent one, because the in-between ones will be included
-                    if ( count( $dirs_to_update ) )
-                        $individual_file_rev_updates[] = array( array_pop($dirs_to_update), $rev[0] );
+							$dir_test = $dir; // iterate backwards
+						}
+						///  Need to add in parent-first order
+						///    NOTE: we only need to do the parent one, because the in-between ones will be included
+						if ( count( $dirs_to_update ) ) {
+							$individual_file_rev_updates[$file] = array( array_pop($dirs_to_update), $rev[0] );
+							$individual_file_rev_projects[$file][$project->project_name] = $project;
+						}
                     
-                    $individual_file_rev_updates[] = array( $file, $rev[0] );
-                } else {
-                    list($first_rev, $error) = $this->get_first_rev( $file );
-                    if ( empty( $error ) ) {
-                        $rev_before_first = $first_rev - 1;
-                        $individual_file_rev_updates[] = array( $file, $rev_before_first );
-                    }
-                }
+						$individual_file_rev_updates[] = array( $file, $rev[0] );
+						$individual_file_rev_projects[$file][$project->project_name] = $project;
+					} else {
+						list($first_rev, $error) = $this->get_first_rev( $file );
+						if ( empty( $error ) ) {
+							$rev_before_first = $first_rev - 1;
+							$individual_file_rev_updates[$file] = array( $file, $rev_before_first );
+							$individual_file_rev_projects[$file][$project->project_name] = $project;
+						}
+					}
+				}
             }
         }
 
@@ -99,7 +127,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             $head_update_cmd = "svn update ";
             foreach ( $mass_head_update_files as $file ) $head_update_cmd .= ' '. escapeshellcmd($file);
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-            $this->log_repo_action($head_update_cmd, $project, $user);
+			foreach ( $mass_head_update_projects as $project )
+				$this->log_repo_action($head_update_cmd, $project, $user);
 			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
             $command_output .= shell_exec("$cmd_prefix$head_update_cmd 2>&1 | cat -");
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
@@ -113,7 +142,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
                 $indiv_update_cmd = "svn update -r$rev ". escapeshellcmd($file);
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-                $this->log_repo_action($indiv_update_cmd, $project, $user);
+				foreach ($individual_file_rev_projects[$file] as $project)
+					$this->log_repo_action($indiv_update_cmd, $project, $user);
 				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
                 $command_output .= shell_exec("$cmd_prefix$indiv_update_cmd 2>&1 | cat -");
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
@@ -126,56 +156,58 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         return( array($cmd, $command_output) );
     }
 
-    public function tagAction($project, $tag, $user) {
+    public function tagAction($projects, $tag, $user) {
 
         ###  Look and update tags
-        foreach ( $project->get_affected_files() as $file ) {
-            ###  Make sure this file exists
-            if ( file_exists($this->stage->env()->repo_base ."/$file")
-                 && ! is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-                 ) {
-                list( $cur_rev ) = $this->get_current_rev($file);
-
-                ###  See what the tag was before...
-                $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-                $old_rev = $sth->fetch(PDO::FETCH_NUM);
-                $sth->closeCursor();
-            
-                ###  Update the Tag DB for this file...
-                $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-                $rv = dbh_do_bind("INSERT INTO file_tag ( file,tag,revision ) VALUES (?,?,?)", $file, $tag, $cur_rev);
-
-                ###  Add to Command output whether we really changed the tag or not
-                if ( ! empty( $old_rev ) && $old_rev[0] != $cur_rev ) {
-                    $command_output .=          "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
-                    $this->log_repo_action("TAG: Moved $tag on $file from ". $old_rev[0] . " to $cur_rev", $project, $user);
-                }
-                else if ( empty( $old_rev ) ) {
-                    $command_output .=          "Set $tag on $file to ". $cur_rev ."\n";
-                    $this->log_repo_action("TAG: Set $tag on $file to ". $cur_rev, $project, $user);
-                }
-                else {
-                    $command_output .=          "Preserved $tag on $file at ". $old_rev[0] ."\n";
-                    $this->log_repo_action("TAG: Preserved $tag on $file at ". $old_rev[0], $project, $user);
-                }
-            }
-            ###  If it doesn't exist, we need to remove the tag...
-            else {
-                ###  See what the tag was before...
-                $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-                $old_rev = $sth->fetch(PDO::FETCH_NUM);
-                $sth->closeCursor();
-            
-                ###  Update the Tag DB for this file...
-                $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-
-                ###  Add to Command output whether we really changed the tag or not
-                if ( ! empty( $old_rev ) ) {
-                    $command_output .=          "Removed $tag on $file\n";
-                    $this->log_repo_action("TAG: Removed $tag on $file", $project, $user);
-                }
-            }
-        }
+		foreach ( $projects as $project ) {
+        	foreach ( $project->get_affected_files() as $file ) {
+        	    ###  Make sure this file exists
+        	    if ( file_exists($this->stage->env()->repo_base ."/$file")
+        	         && ! is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+        	         ) {
+        	        list( $cur_rev ) = $this->get_current_rev($file);
+			
+        	        ###  See what the tag was before...
+        	        $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+        	        $old_rev = $sth->fetch(PDO::FETCH_NUM);
+        	        $sth->closeCursor();
+        	    
+        	        ###  Update the Tag DB for this file...
+        	        $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+        	        $rv = dbh_do_bind("INSERT INTO file_tag ( file,tag,revision ) VALUES (?,?,?)", $file, $tag, $cur_rev);
+			
+        	        ###  Add to Command output whether we really changed the tag or not
+        	        if ( ! empty( $old_rev ) && $old_rev[0] != $cur_rev ) {
+        	            $command_output .=          "Moved $tag on $file from ". $old_rev[0] . " to $cur_rev\n";
+        	            $this->log_repo_action("TAG: Moved $tag on $file from ". $old_rev[0] . " to $cur_rev", $project, $user);
+        	        }
+        	        else if ( empty( $old_rev ) ) {
+        	            $command_output .=          "Set $tag on $file to ". $cur_rev ."\n";
+        	            $this->log_repo_action("TAG: Set $tag on $file to ". $cur_rev, $project, $user);
+        	        }
+        	        else {
+        	            $command_output .=          "Preserved $tag on $file at ". $old_rev[0] ."\n";
+        	            $this->log_repo_action("TAG: Preserved $tag on $file at ". $old_rev[0], $project, $user);
+        	        }
+        	    }
+        	    ###  If it doesn't exist, we need to remove the tag...
+        	    else {
+        	        ###  See what the tag was before...
+        	        $sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+        	        $old_rev = $sth->fetch(PDO::FETCH_NUM);
+        	        $sth->closeCursor();
+        	    
+        	        ###  Update the Tag DB for this file...
+        	        $rv = dbh_do_bind("DELETE FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
+			
+        	        ###  Add to Command output whether we really changed the tag or not
+        	        if ( ! empty( $old_rev ) ) {
+        	            $command_output .=          "Removed $tag on $file\n";
+        	            $this->log_repo_action("TAG: Removed $tag on $file", $project, $user);
+        	        }
+        	    }
+        	}
+		}
 
         $cmd = "TAG all files: $tag";
 

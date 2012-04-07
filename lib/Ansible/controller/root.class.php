@@ -64,238 +64,250 @@ class Ansible__root extends Stark__Controller__Base {
 	}
 
 	public function project_page($ctl) {
-		$project = new Ansible__Project( $_REQUEST['pname'], $ctl->stage );
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+		$projects_lookup = array_flip((array) $_REQUEST['p']);
 		
 		###  Read Command output
 		$previous_command = $this->read_previous_command( $ctl );
 
-		###  Load and parse the file list
-		$file_tags = $project->get_file_tags();
-		$files = $project->get_affected_files();
+		###  Load for each project
 		$locally_modified = false;
-		$file_lines = array();
-		foreach ( $files as $file ) {
-			$file_line = array( 'file' => $file, 
-								);
-
-	        ###  Get Current Version
-	        $file_line['cur_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-	            global $stage;
-	            if ( ! file_exists($stage->env()->repo_base ."/$file") ) {
-	                $cur_vers = '<i>-- n/a --</i>';
-	            } else if ( is_dir($stage->env()->repo_base ."/$file") ) {
-	                $cur_vers = '<i>Directory</i>';
-	            } else {
-	                list($cur_rev, $error, $status, $state_code, $is_modified)
-	                    = $stage->repo()->get_current_rev( $file );
-	                if ( empty( $error ) ) {
-	            
-	                    ###  Add a diff link if Locally Modified
-	                    if ( $is_modified ) {
-	                        $cur_vers = "<a href=\"actions/diff.php?from_rev=$cur_rev&to_rev=local&file=". urlencode($file) ."\">$status</a>, $cur_rev";
-	                        $locally_modified = true;
-	                    }
-	                    else { $cur_vers = "$status, $cur_rev"; }
-	                } else {
-	                    $cur_vers = "<div title=\"". htmlentities( $stage->repo()->get_status($file)) ."\"><i>". $error ."</i></div>";
-	                }
-	            }
+		$project_data = array();
+		foreach ( $projects as $project ) {
 	
-	            return $cur_vers;
+			###  Load and parse the file list
+			$file_tags = $project->get_file_tags();
+			$files = $project->get_affected_files();
+			$project_data[$project->project_name]['project'] = $project;
+			$project_data[$project->project_name]['file_lines'] = array();
+			foreach ( $files as $file ) {
+				$file_line = array( 'file' => $file, 
+									);
+	
+		        ###  Get Current Version
+		        $file_line['cur_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+		            global $stage;
+		            if ( ! file_exists($stage->env()->repo_base ."/$file") ) {
+		                $cur_vers = '<i>-- n/a --</i>';
+		            } else if ( is_dir($stage->env()->repo_base ."/$file") ) {
+		                $cur_vers = '<i>Directory</i>';
+		            } else {
+		                list($cur_rev, $error, $status, $state_code, $is_modified)
+		                    = $stage->repo()->get_current_rev( $file );
+		                if ( empty( $error ) ) {
+		            
+		                    ###  Add a diff link if Locally Modified
+		                    if ( $is_modified ) {
+		                        $cur_vers = "<a href=\"actions/diff.php?from_rev=$cur_rev&to_rev=local&file=". urlencode($file) ."\">$status</a>, $cur_rev";
+		                        $locally_modified = true;
+		                    }
+		                    else { $cur_vers = "$status, $cur_rev"; }
+		                } else {
+		                    $cur_vers = "<div title=\"". htmlentities( $stage->repo()->get_status($file)) ."\"><i>". $error ."</i></div>";
+		                }
+		            }
+		
+		            return $cur_vers;
 DELAY
 */
 ));
 
-	        ###  Get PROD_SAFE Version
-	        $file_line['prod_safe_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-	            global $stage;
-	
-				list($cur_rev) = $stage->repo()->get_current_rev( $file );
-	
-				///  So it will show the "Loading..."
-				list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-	
-	            $prod_safe_rev = $stage->repo()->get_tag_rev($file, 'PROD_SAFE');
-	            if ( $prod_safe_rev ) {
-	                if ( $prod_safe_rev != $cur_rev ) {
-	                    $prod_safe_vers = "<b><font color=red>$prod_safe_rev</font></b>";
-	                }
-	                else { $prod_safe_vers = $prod_safe_rev; }
-	            }
-	            else { $prod_safe_vers = '<i>-- n/a --</i>'; }
-	
-	            return $prod_safe_vers;
+		        ###  Get PROD_SAFE Version
+		        $file_line['prod_safe_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+		            global $stage;
+		
+					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+		
+					///  So it will show the "Loading..."
+					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+		
+		            $prod_safe_rev = $stage->repo()->get_tag_rev($file, 'PROD_SAFE');
+		            if ( $prod_safe_rev ) {
+		                if ( $prod_safe_rev != $cur_rev ) {
+		                    $prod_safe_vers = "<b><font color=red>$prod_safe_rev</font></b>";
+		                }
+		                else { $prod_safe_vers = $prod_safe_rev; }
+		            }
+		            else { $prod_safe_vers = '<i>-- n/a --</i>'; }
+		
+		            return $prod_safe_vers;
 DELAY
 */
 ));
 
-	        ###  Get PROD_TEST Version
-	        $file_line['prod_test_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-	            global $stage;
-	
-				list($cur_rev) = $stage->repo()->get_current_rev( $file );
-	
-				///  So it will show the "Loading..."
-				list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-	
-	            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
-	            if ( ! empty( $prod_test_rev ) ) {
-	                if ( $prod_test_rev != $cur_rev ) {
-	                    $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
-	                }
-	                else { $prod_test_vers = $prod_test_rev; }
-	            }
-	            else { $prod_test_vers = '<i>-- n/a --</i>'; }
-	
-	            return $prod_test_vers;
+		        ###  Get PROD_TEST Version
+		        $file_line['prod_test_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+		            global $stage;
+		
+					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+		
+					///  So it will show the "Loading..."
+					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+		
+		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
+		            if ( ! empty( $prod_test_rev ) ) {
+		                if ( $prod_test_rev != $cur_rev ) {
+		                    $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
+		                }
+		                else { $prod_test_vers = $prod_test_rev; }
+		            }
+		            else { $prod_test_vers = '<i>-- n/a --</i>'; }
+		
+		            return $prod_test_vers;
 DELAY
 */
 ));
 
-	        ###  Get HEAD Version
-	        $file_line['head_vers'] = delayed_load_span(array($file,$project,$file_tags), create_function('$file,$project,$file_tags',now_doc('DELAY')/*
-	            global $stage;
-	
-				list($cur_rev) = $stage->repo()->get_current_rev( $file );
-	
-				///  So it will show the "Loading..."
-				list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-	
-	            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
-	            if ( empty($error) ) {
-	                if ( $head_rev != $cur_rev
-	                     && ( empty( $file_tags[$file] )
-	                          || $file_tags[$file] == $cur_rev
-	                          )
-	                     ) {
-	                    $head_vers = "<b><font color=red>$head_rev</font></b>";
-	                }
-	                else { $head_vers = $head_rev; }
-	            } else if ( $error_code == 'not_exists' ) {
-	                $head_vers = "<i>". $error ."</i>";
-	            } else {
-	                $head_vers = "<div title=\"". htmlentities( $stage->repo()->get_log($file) ) ."\"><i>". $error ."</i></div>";
-	            }
-	
-	            return $head_vers;
+		        ###  Get HEAD Version
+		        $file_line['head_vers'] = delayed_load_span(array($file,$project,$file_tags), create_function('$file,$project,$file_tags',now_doc('DELAY')/*
+		            global $stage;
+		
+					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+		
+					///  So it will show the "Loading..."
+					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+		
+		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
+		            if ( empty($error) ) {
+		                if ( $head_rev != $cur_rev
+		                     && ( empty( $file_tags[$file] )
+		                          || $file_tags[$file] == $cur_rev
+		                          )
+		                     ) {
+		                    $head_vers = "<b><font color=red>$head_rev</font></b>";
+		                }
+		                else { $head_vers = $head_rev; }
+		            } else if ( $error_code == 'not_exists' ) {
+		                $head_vers = "<i>". $error ."</i>";
+		            } else {
+		                $head_vers = "<div title=\"". htmlentities( $stage->repo()->get_log($file) ) ."\"><i>". $error ."</i></div>";
+		            }
+		
+		            return $head_vers;
 DELAY
 */
 ));
 
-	        ###  Do Target
-	        $file_line['target_vers'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
-	            global $stage;
-	
-				list($cur_rev) = $stage->repo()->get_current_rev( $file );
-	
-				///  So it will show the "Loading..."
-				list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-	
-	            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
-	            if ( empty($error) ) {
-	                ###  Set Target version if it's there
-	                list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-	                if ( $used_file_tags ) {
-	                    if ( $target_rev != $cur_rev ) { $target_vers = "<b><font color=red>". $target_rev ."</font></b>"; }
-	                    else {                           $target_vers = "<b>".                 $target_rev        ."</b>"; }
-	                }
-	                else { $target_vers = '-&gt;'; }
-	            }
-	
-	            return $target_vers;
+		        ###  Do Target
+		        $file_line['target_vers'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
+		            global $stage;
+		
+					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+		
+					///  So it will show the "Loading..."
+					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+		
+		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
+		            if ( empty($error) ) {
+		                ###  Set Target version if it's there
+		                list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
+		                if ( $used_file_tags ) {
+		                    if ( $target_rev != $cur_rev ) { $target_vers = "<b><font color=red>". $target_rev ."</font></b>"; }
+		                    else {                           $target_vers = "<b>".                 $target_rev        ."</b>"; }
+		                }
+		                else { $target_vers = '-&gt;'; }
+		            }
+		
+		            return $target_vers;
 DELAY
 */
 ));
 
-	        ###  Changes by
-	        $file_line['changes_by'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
-	            global $stage;
-	
-				list($cur_rev) = $stage->repo()->get_current_rev( $file );
-	
-				///  So it will show the "Loading..."
-				list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-	
-	            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
-	            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
-	            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-	            $c_by_rev = $stage->onLive() ? $cur_rev : $prod_test_rev;
-	            if ( $c_by_rev && $target_rev ) {
-	                $diff_revs = $stage->repo()->get_revs_in_diff($file, $c_by_rev, $target_rev);
-	                $names = array();  foreach ( array_reverse( $diff_revs ) as $_ ) { $names[] = $stage->repo()->get_rev_committer( $file, $_ ); }
-	                $names = array_unique($names);
-	    
-	                ###  Find regressions!
-	                $changes_by = null;
-	                if ( count($diff_revs) == 0 && $c_by_rev != $target_rev ) {
-	                    $reverse_revs = $stage->repo()->get_revs_in_diff($file, $target_rev, $c_by_rev);
-	                    if ( count($reverse_revs) > 0 ) {
-	                        $changes_by = '<font color=red><b><i>-'. count( $reverse_revs ) .' rev'. (count($reverse_revs) == 1 ? '' : 's'). '!!!</i></b></font>';
-	                    }
-	                }
-	                if ( empty($changes_by) ) $changes_by = count( $diff_revs ) .' rev'. (count($diff_revs) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
-	            }
-	
-	            return $changes_by;
+		        ###  Changes by
+		        $file_line['changes_by'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
+		            global $stage;
+		
+					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+		
+					///  So it will show the "Loading..."
+					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+		
+		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
+		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
+		            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
+		            $c_by_rev = $stage->onLive() ? $cur_rev : $prod_test_rev;
+		            if ( $c_by_rev && $target_rev ) {
+		                $diff_revs = $stage->repo()->get_revs_in_diff($file, $c_by_rev, $target_rev);
+		                $names = array();  foreach ( array_reverse( $diff_revs ) as $_ ) { $names[] = $stage->repo()->get_rev_committer( $file, $_ ); }
+		                $names = array_unique($names);
+		    
+		                ###  Find regressions!
+		                $changes_by = null;
+		                if ( count($diff_revs) == 0 && $c_by_rev != $target_rev ) {
+		                    $reverse_revs = $stage->repo()->get_revs_in_diff($file, $target_rev, $c_by_rev);
+		                    if ( count($reverse_revs) > 0 ) {
+		                        $changes_by = '<font color=red><b><i>-'. count( $reverse_revs ) .' rev'. (count($reverse_revs) == 1 ? '' : 's'). '!!!</i></b></font>';
+		                    }
+		                }
+		                if ( empty($changes_by) ) $changes_by = count( $diff_revs ) .' rev'. (count($diff_revs) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
+		            }
+		
+		            return $changes_by;
 DELAY
 */
 ));
 
-	        ###  Actions
-	        $file_line['actions'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
-	            global $stage;
-	
-				list($cur_rev) = $stage->repo()->get_current_rev( $file );
-	
-				///  So it will show the "Loading..."
-				list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-	
-	            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
-	            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
-	            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-	            $c_by_rev = $stage->onLive() ? $cur_rev : $prod_test_rev;
-	
-	            $actions = '<i>n/a</i>';
-	            if ( $c_by_rev && $target_rev ) {
-	                $actions = ( "<a         href=\"actions/part_log.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."\">Log</a>"
-	                             . "&nbsp;<a     href=\"actions/diff.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."\">Diff</a>"
-	                             );
-	            }
-	
-	            return $actions;
+		        ###  Actions
+		        $file_line['actions'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
+		            global $stage;
+		
+					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+		
+					///  So it will show the "Loading..."
+					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+		
+		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
+		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
+		            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
+		            $c_by_rev = $stage->onLive() ? $cur_rev : $prod_test_rev;
+		
+		            $actions = '<i>n/a</i>';
+		            if ( $c_by_rev && $target_rev ) {
+		                $actions = ( "<a         href=\"actions/part_log.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."\">Log</a>"
+		                             . "&nbsp;<a     href=\"actions/diff.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."\">Diff</a>"
+		                             );
+		            }
+		
+		            return $actions;
 DELAY
 */
 ));
 
 
-			###  Other Projects Sharing files
-			$other_projects = array();
-			foreach ( $ctl->stage->get_projects() as $pname ) {
-				if ( empty( $pname ) || $pname == $project->project_name ) continue;
+				###  Other Projects Sharing files
+				$other_projects = array();
+				foreach ( $ctl->stage->get_projects() as $pname ) {
+					if ( empty( $pname ) || $pname == $project->project_name ) continue;
 
-				$other_project = new Ansible__Project( $pname, $ctl->stage, false );
-				if ( ! in_array( $other_project->get_group(), array( '00_none','01_staging','03_testing_done','04_prod_rollout_prep' ) ) )
-					continue;
+					$other_project = new Ansible__Project( $pname, $ctl->stage, false );
+					if ( ! in_array( $other_project->get_group(), array( '00_none','01_staging','03_testing_done','04_prod_rollout_prep' ) ) )
+						continue;
 
-				foreach ( $files as $our_file ) {
-					foreach ( $other_project->get_affected_files() as $their_file ) {
-						if ( $our_file == $their_file ) {
-							if ( ! isset( $other_projects[ $pname ] ) ) $other_projects[ $pname ] = array('project' => $other_project);
-							$other_projects[ $pname ][] = $their_file;
+					foreach ( $files as $our_file ) {
+						foreach ( $other_project->get_affected_files() as $their_file ) {
+							if ( $our_file == $their_file ) {
+								if ( ! isset( $other_projects[ $pname ] ) )
+									$other_projects[ $pname ] = array( 'data' =>
+																	   array( 'project' => $other_project,
+																			  'included' => isset( $projects_lookup[ $other_project->project_name ] ),
+																			  'remove_project_url' => $ctl->stage->get_projects_url($projects, $other_project->project_name),
+																			  )
+																	   );
+								$other_projects[ $pname ][] = $their_file;
+							}
 						}
 					}
 				}
+				$project_data[$project->project_name]['other_projects'] = $other_projects;
+				$project_data[$project->project_name]['remove_project_url'] = $ctl->stage->get_projects_url($projects, $project->project_name);
+				$project_data[$project->project_name]['files'][] = $file_line;
 			}
-
-
-			$file_lines[] = $file_line;
 		}
 			
-		return array( 'project'          => $project,
-					  'previous_command' => $previous_command,
-					  'files'            => $file_lines,
-					  'locally_modified' => $locally_modified,
-					  'other_projects'   => $other_projects,
+		return array( 'project_data'       => $project_data,
+					  'previous_command'   => $previous_command,
+					  'locally_modified'   => $locally_modified,
+					  'project_url_params' => $ctl->stage->get_projects_url($projects),
 					 );
 	}
 

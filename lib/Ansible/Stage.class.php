@@ -216,6 +216,25 @@ class Ansible__Stage {
 	#########################
 	###  Projects Access
 
+	public function get_projects_url($projects, $exclude = false) {
+		$params = array();
+		foreach ( $projects as $project ) {
+			if ( $exclude && $exclude == $project->project_name ) continue;
+			$params[] = "p[]=". urlencode($project->project_name);
+		}
+		return join('&',$params);
+	}
+	public function get_projects_from_param($param) {
+		require_once($this->config('lib_path'). '/Ansible/Project.class.php');
+		$projects = array();
+		foreach ( (array) $param as $p ) {
+			$project = new Ansible__Project( $p, $this );
+			if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
+			$projects[] = $project;
+		}
+		return $projects;
+	}
+
 	public function get_projects() {
 		$tmp = func_get_args();
 		$project_base = $this->config('project_base');

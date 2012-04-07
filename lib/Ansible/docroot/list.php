@@ -21,7 +21,7 @@
 				<td>
 					<?= ( $view->category == 'archived'
 						    ? $project['name']
-						    : "<a href=\"project.php?pname=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
+						    : "<a href=\"project.php?p=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
 						  ) ?>
 				</td>
 				<td align=center><?= $project['creator'] ?></td>
@@ -30,8 +30,8 @@
 				<td align=center><?= $project['has_summary'] ?></td>
 				<td>
 					<?= ( $view->category == 'archived'
-					      ? "<a href=\"actions/unarchive_project.php?pname=". urlencode($project['name']) ."\">Un-Archive</a>"
-						  : "<a href=\"project.php?pname=". urlencode($project['name']) ."\">View</a> | <a href=\"actions/archive_project.php?pname=". urlencode($project['name']) ."\">Archive</a>"
+					      ? "<a href=\"actions/unarchive_project.php?p=". urlencode($project['name']) ."\">Un-Archive</a>"
+						  : "<a href=\"project.php?p=". urlencode($project['name']) ."\">View</a> | <a href=\"actions/archive_project.php?p=". urlencode($project['name']) ."\">Archive</a>"
 						 )
 					?>
 				</td>
