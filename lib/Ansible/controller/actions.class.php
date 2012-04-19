@@ -102,7 +102,7 @@ class Ansible__actions extends Stark__Controller__Base {
 						);
         require($ctl->stage->extend->run_hook('command_output', -25));
 		###  If the Bounce URL is too long for HTTP protocol maximum then just echo out the stuff...
-		if ( 1 || strlen( $bounce_url ) > 2000 ) {
+		if ( strlen( $bounce_url ) > 2000 ) {
 			return( array( 'cmd' => $cmd,
 						   'command_output' => $command_output,
 						   ) );

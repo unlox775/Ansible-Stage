@@ -240,7 +240,7 @@ class Ansible__Stage {
 		$project_base = $this->config('project_base');
 		$ignore_regex = $this->config('project_base_ignore_regexp');
 		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
-		return explode("\n",`ls -1 $project_base | grep -E -v '^(archive|logs|$ignore_regex)\$'`);
+		return explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base | /bin/grep -E -v '^(archive|logs|$ignore_regex)\$'`);
 	}
 
 	public function get_archived_projects() {
@@ -248,7 +248,7 @@ class Ansible__Stage {
 		$project_base = $this->config('project_base');
 		$ignore_regex = $this->config('project_base_ignore_regexp');
 		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
-		return explode("\n",`ls -1 $project_base/archive | grep -E -v '^($ignore_regex)\$'`);
+		return explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base/archive | /bin/grep -E -v '^($ignore_regex)\$'`);
 	}
 
 	public function get_projects_by_group($category = 'active') {

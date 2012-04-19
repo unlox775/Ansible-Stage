@@ -64,6 +64,8 @@ class Ansible__root extends Stark__Controller__Base {
 	}
 
 	public function project_page($ctl) {
+		if ( empty( $_REQUEST['p'] ) )
+			$ctl->redirect('list.php');
 		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
 		$projects_lookup = array_flip((array) $_REQUEST['p']);
 		

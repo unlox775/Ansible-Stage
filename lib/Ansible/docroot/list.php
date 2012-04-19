@@ -4,10 +4,12 @@
 <!-- /////  List of projects  ///// -->
 <h3>List of <?= ( $view->category == 'archived' ? 'Archived' : '' ) ?> Projects</h3>
 
+<form action="project.php" method="GET">
 <?php foreach ( array_keys( $view->projects ) as $group ) { ?>
 	<h2><?= ( isset( $view->groups[$group] ) ? $view->groups[$group] : $group ) ?></h2>
 	<table width=100%>
 		<tr>
+			<th width=1% align=left>&nbsp;</th>
 			<th width=30% align=left>Name</th>
 			<th align=center>Created by</th>
 			<th align=center>Last Modified</th>
@@ -19,10 +21,13 @@
 		<?php foreach ( $view->projects[ $group ] as $project ) { ?>
 			<tr>
 				<td>
-					<?= ( $view->category == 'archived'
-						    ? $project['name']
-						    : "<a href=\"project.php?p=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
-						  ) ?>
+					<input type="checkbox" name="p[]" value="<?php echo htmlentities( $project['name'] ) ?>"/>
+				</td>
+				<td>
+					<?php echo ( $view->category == 'archived'
+					  			 ? $project['name']
+					  			 : "<a href=\"project.php?p=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
+					) ?>
 				</td>
 				<td align=center><?= $project['creator'] ?></td>
 				<td align=center><?= $project['mod_time_display'] ?></td>
@@ -38,7 +43,9 @@
 			</tr>
 		<?php } ?>
 	</table>
+	<input type="submit" value="View Checked Projects"/>
 <?php } ?>
+</form>
 
 <?php if ( $view->category != 'archived' ) { ?>
 	<p>See list of <a href="?cat=archived">Archived projects</p>

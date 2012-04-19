@@ -72,8 +72,11 @@
 							 . ' ['. substr($data['project']->get_group(), 0, 2) .']'
 							 . '</a>'
 							 . ( $data['included']
-								 ? ' <a href="project.php?'. $data['remove_project_url'] .'">[X]</a>'
-								 : ' <a href="project.php?'. $view->project_url_params .'&p[]='. urlencode($pname) .'">[&harr;]</a>'
+								 ? ' <a href="project.php?'. $data['remove_project_url'] .'" style="color: green">[X]</a>'
+								 : ( ' <a href="project.php?'. $view->project_url_params .'&p[]='. urlencode($pname) .'"'
+									 . ' style="color: '. ($pdata['project']->get_group() == $data['project']->get_group() ? 'red' : 'darkgray') .'"'
+									 . '>[&harr;]</a>'
+									 )
 								 )
 	                         );
 		  }
@@ -81,15 +84,11 @@
 		?>
 	<?php } ?>
 
-	<?php if ( count($view->project_data) == 1 ) { ?>
+	<?php if ( $pdata['project']->file_exists("summary.txt") ) { ?>
 		<!-- /////  Summary File  ///// -->
 		<h3>Summary</h3>
 		<pre>
-			<?php if ( $pdata['project']->file_exists("summary.txt") ) { ?>
-			    <?php echo $pdata['project']->get_file("summary.txt"); ?>
-			<?php } else { ?>
-			    -- No project summary entered --
-			<?php } ?>
+			<?php echo $pdata['project']->get_file("summary.txt"); ?>
 		</pre>
 	<?php } ?>
 <?php } ?>
