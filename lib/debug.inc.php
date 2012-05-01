@@ -176,6 +176,40 @@ function bug() {
 function FORCE_BUG() { global $BUG_ON;  $tmp = $BUG_ON;  $BUG_ON = true;  $a = func_get_args();  call_user_func_array('bug', $a);  $BUG_ON = $tmp; }
 
 
+/**
+ * bugw() - Debug one or more values
+ *
+ * Like bug, bur prints to STDERR, or the error log.  Unlike bug,
+ * If it is called in a cron, and with just a string, then it
+ * does not use var_export().
+ *
+ * Like the other functions it checks $BUG_ON.  This means stray
+ * debugging accidentally rolled out live will not be printed.
+ * If you don't want this check (e.g. you are trying to debug on
+ * Live (shame shame!), then use the "force" version {@link
+ * FORCE_BUG()}.
+ *
+ * @param mixed $stuff_to_debug  This can be one or multiple args
+ */
+function bugw() { 
+    global $BUG_ON;
+    if ( ! $BUG_ON) return true;
+
+    if ( ! isset( $GLOBALS['DEBUG_fh_stderr'] ) )
+        $GLOBALS['DEBUG_fh_stderr'] = fopen("php://stderr", 'w');
+
+    $tr = debug_backtrace();
+    $level = 0;
+    while( isset($tr[$level + 1]) && ( in_array($tr[$level + 1]['function'], array('FORCE_BUG') ) || ! isset($tr[$level]['file']) ) ) $level++;
+
+    $ary = func_get_args();
+    if ( count($ary) == 1 ) $ary = $ary[0];
+    if ( ! isset( $_SERVER['REQUEST_METHOD'] ) && is_string( $ary ) )
+         fwrite( $GLOBALS['DEBUG_fh_stderr'], "\n\n$ary" ); 
+    else fwrite( $GLOBALS['DEBUG_fh_stderr'], "\n\nFile: ". $tr[$level]['file'] .", line ". $tr[$level]['line'] ."\n". var_export( $ary, true) ); 
+}
+
+
 #########################
 ###  Error System Hook
 
