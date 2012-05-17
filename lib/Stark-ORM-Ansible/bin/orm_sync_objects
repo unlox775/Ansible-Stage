@@ -23,6 +23,7 @@ $dry_run = array_search('-n',$argv) !== false ? true : false;
 $execute = array_search('-x',$argv) !== false ? true : false;
 $delete  = array_search('-d',$argv) !== false ? true : false;
 $verbose = array_search('-v',$argv) !== false ? true : false;
+$debugging = array_search('-g',$argv) !== false ? true : false;
 if ( $verbose ) $GLOBALS['BUG_ON'] = true;
 ///  Debugging function
 if ( $verbose ) $GLOBALS['DEBUG_fh_stderr'] = fopen("php://stderr", 'w');
@@ -41,7 +42,7 @@ foreach( $argv as $arg ) {
 	else $from_where .= "\n    AND ". $arg;
 }
 
-if ( ! empty( $main_class ) )
+if ( ! empty( $main_class ) && ! class_exists( $main_class ) )
 	include("models/". str_replace('__','/',$main_class) .".php");
 
 ///  Usage (for CLI options), or syntax error
@@ -54,6 +55,7 @@ if ( array_search('--help', $argv) !== false
 	 ) {
     echo ( $argv[0]. " [options] <php-class-name> <from-databse-name> <to-database-name> [<where-clause-item> <where-clause-item> ...] \n  Options:\n"
            . "    -v    \tVerbose, print status, and debugging output\n"
+           . "    -g    \tExtra Verbose, debugging output\n"
            . "    -n    \tDry Run, don't actually run any inserts, updates or deletes, just report what would have been updated\n"
            . "    -x    \tDo run inserts, updates and deletes, AND do a commit() at the end...\n"
            . "    -d    \tDo Deletions on primary rows and sub-relation rows\n"
@@ -70,6 +72,7 @@ $sync->dry_run = $dry_run;
 $sync->execute = $execute;
 $sync->delete  = $delete;
 $sync->verbose = $verbose;
+$sync->debugging = $debugging;
 $sync->from_env = $from_dbname;
 $sync->to_env = $to_dbname;
 

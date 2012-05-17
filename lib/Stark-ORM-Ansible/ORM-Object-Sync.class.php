@@ -8,6 +8,7 @@ class ORM_Object_Sync {
 	protected $envs = array();
 	public $dry_run     = false;
 	public $verbose     = false;
+	public $debugging   = false;
 	public $delete      = false;
 	public $execute     = false; //  Must be set to TRUE for final commit
 	public $from_env    = null;
@@ -40,7 +41,7 @@ class ORM_Object_Sync {
 		$from_ukeys = array();
 		foreach ($from as $from_o) {
 			if ( ! ($by_ukey = $this->get_ukey( $from_o ) ) ) {
-				bugw("ERROR : Can't clone ". get_class($from_rel) ." because it doesn't have a 'clone_by_ukey' setting yet. Skipping...");
+				bugw("ERROR : Can't clone ". get_class($from_o) ." because it doesn't have a 'clone_by_ukey' setting yet. Skipping...");
 				exit;
 			}
 			$from_ukeys[ join('||--||', $by_ukey ) ] = $from_o;
@@ -179,9 +180,10 @@ class ORM_Object_Sync {
 			$found = false;
 			foreach ( $relation_search as $m => $rel ) {
 				if (  $relation != $rel ) continue;
-				$found = true;  if ( ! is_int( $m ) ) $mode = $m;
+				$found = true;  if ( ! is_int( $m ) ) $mode = preg_replace('/\d+$/','',$m);
 			}
 			if ( ! $found ) continue;
+			if ( $this->debugging ) bugw("STARTING ON RELATION ". get_class( $from_o ) .".$relation in $mode MODE\n");
 		
 			if ( $def['relationship'] == 'has_many' ) {
 				$from_ukeys = array();
@@ -202,10 +204,14 @@ class ORM_Object_Sync {
 					$key = join('||--||', $by_ukey );
 
 					///  If it doesn't exist in the FROM, then DELETE
+					if ( $this->debugging ) bugw("LOOKING IN FROM for has_many ". get_class($to_rel) ." (FOR DELETE) by UKey:", $key);
+					if ( ! $from_ukeys[ $key ] && $this->debugging ) bugw("NOT FOUND IN FROM for has_many ". get_class($to_rel) ." by UKey:", $key);
 					if ( ! $from_ukeys[ $key ] && $this->check_mode('delete', $mode) ) {
 						if ( $this->verbose && $this->delete ) bugw("DELETING ". get_class($to_rel) .": ", $key);
 						if ( ! $this->dry_run && $this->delete ) {
-							if ( method_exists( $to_rel, 'mark_deleted' ) ) $to_rel->mark_deleted();
+							if ( $to_rel->can_mark_deleted() ) {
+								$to_rel->mark_deleted();
+							}
 							else $to_rel->delete();
 						}
 					}
@@ -219,10 +225,13 @@ class ORM_Object_Sync {
 					foreach( $from_rel->get_primary_key() as $col ) if ( preg_match('/^\d+$/',  $to_set[ $col ] ) ) unset( $to_set[ $col ] );
 					foreach( (array) $def['foreign_key_columns'] as $i => $col ) $to_set[ $pkeys[$i] ] = $to_o->get($col);
 					$rel_has_ones = $this->get_has_ones( $from_rel, $this->descend_relation( $relation, $relation_search ) );
+					if ( $this->debugging ) bugw("GOT THESE has_ones in TO for ". get_class( $from_rel ) .":", $this->descend_relation( $relation, $relation_search ), $rel_has_ones);
 					$to_set = array_merge($to_set, $rel_has_ones);
 
 					///  IF they both exist, then UPDATE
+					if ( $this->debugging ) bugw("LOOKING IN TO for has_many ". get_class($from_rel) ." by UKey:", $key);
 					if ( isset( $to_ukeys[ $key ] ) ) {
+						if ( $this->debugging ) bugw("Found has_many ". get_class($from_rel) ." in TO side!");
 						$before = $to_ukeys[ $key ]->get_all();
 						$to_ukeys[ $key ]->remember_old_values(true);
 						$to_ukeys[ $key ]->set($to_set);
@@ -276,7 +285,10 @@ class ORM_Object_Sync {
 					///  Load this has_many object in the $this->to_env
 					if ( ! isset( $GLOBALS['ukey_cache']['to'][ $class ][ $key ] ) ) {
 						$this->switch_to_db($this->to_env);
+						if ( $this->debugging ) bugw("LOOKING IN TO for many_to_many $class by UKey:", $by_ukey);
 						$to_rel = $class::get_where($by_ukey, true);
+						if ( !empty( $to_rel ) && $this->debugging ) bugw("Found many_to_many $class in TO side!");
+
 						if ( empty( $to_rel ) ) {
 							$to_set = $from_rel->get_all();
 							foreach( $from_rel->get_primary_key() as $col ) if ( preg_match('/^\d+$/',  $to_set[ $col ] ) ) unset( $to_set[ $col ] );
@@ -302,16 +314,31 @@ class ORM_Object_Sync {
 					}
 					else $to_rel = $GLOBALS['ukey_cache']['to'][ $class ][ $key ];
 
-					$pkey = array();
-					foreach ( $from_rel->get_primary_key() as $col ) $pkey[] = $to_rel->get($col);
-					$to_set_complete[] = count( $pkey ) > 1 ? $pkey : $pkey[0];
+					if ( $to_rel ) {
+						$pkey = array();
+						foreach ( $from_rel->get_primary_key() as $col ) $pkey[] = $to_rel->get($col);
+						$to_set_complete[] = count( $pkey ) > 1 ? $pkey : $pkey[0];
+					}
 				}
 				if ( $skip_relation ) continue;
 			
 				///  Now, set the complete relation
 				if ( $this->check_mode('link_many_to_many', $mode) ) {
-					if ( $this->verbose ) bugw("SETTING COMPLETE RELATION ON ". get_class($to_o) ."->". $relation .": ", $to_set_complete);
-					if ( ! $this->dry_run ) $to_o->set_complete_relation( $relation, $to_set_complete );
+					///  See if there is anything to do...
+					if ( $this->debugging ) bugw("BEFORE many_to_many SET COMPLETE RELATION on ". get_class($to_o) ."->". $relation ." checking if changed:", $this->arrays_differ($to_set_complete, $to_o->get_complete_relation($relation) ), $to_set_complete, $to_o->get_complete_relation($relation) );
+					if ( $this->arrays_differ($to_set_complete, $to_o->get_complete_relation($relation) ) ) {
+						if ( $this->verbose ) bugw("SETTING COMPLETE RELATION ON ". get_class($to_o) ."->". $relation .": ", $to_set_complete);
+						if ( ! $this->dry_run ) $to_o->set_complete_relation( $relation, $to_set_complete );
+					}
+				}
+
+				foreach ( $to_o->get_relation( $relation ) as $to_rel ) {
+					$by_ukey = $this->get_ukey( $to_rel );
+					$key = join('||--||', $by_ukey );
+					$from_rel = $from_ukeys[ $key ];
+
+					///  Now, recurse and run this on this sub-relational object
+					$this->clone_relations($from_rel, $to_rel, $this->descend_relation( $relation, $relation_search ));
 				}
 			}
 		}
@@ -344,9 +371,10 @@ class ORM_Object_Sync {
 			$found = false;
 			foreach ( $relation_search as $m => $rel ) {
 				if (  $relation != $rel ) continue;
-				$found = true;  if ( ! is_int( $m ) ) $mode = $m;
+				$found = true;  if ( ! is_int( $m ) ) $mode = preg_replace('/\d+$/','',$m);
 			}
 			if ( ! $found ) continue;
+			if ( $this->debugging ) bugw("STARTING ON RELATION ". get_class( $from_o ) .".$relation in $mode MODE\n");
 
 			$class = $def['class'];
 
@@ -365,7 +393,9 @@ class ORM_Object_Sync {
 			}
 			
 			$this->switch_to_db($this->to_env);
+			if ( $this->debugging ) bugw("LOOKING IN TO for ". get_class( $from_rel ) ." by UKey:", $by_ukey);
 			$to_rel = $class::get_where($by_ukey, true);
+			if ( $to_rel && $this->debugging ) bugw("Found has_one ". get_class( $from_rel ) ." in TO side!");
 
 			$to_set = $from_rel->get_all();
 			foreach( $from_rel->get_primary_key() as $col ) if ( preg_match('/^\d+$/',  $to_set[ $col ] ) ) unset( $to_set[ $col ] );
@@ -373,6 +403,7 @@ class ORM_Object_Sync {
 			$to_set = array_merge($to_set, $rel_has_ones);
 
 			///  Didn't exist, try to INSERT
+			if ( $to_rel && $this->debugging ) bugw("STILL HAVE has_one ". get_class( $from_rel ) ." in TO side!", $to_set);
 			if ( empty( $to_rel ) ) {
 				///  Check for other-UKey collisions (and throw a Retry-Later Exception if so)
 				$this->check_for_other_ukey_collisions( $from_rel, $to_set, /* Is Update = */false, /* Exception = */true, "INSERTING ". get_class($from_rel) ." for ". get_class($from_o) .'->'.$relation.'('.$def['relationship'].')' );
@@ -383,12 +414,15 @@ class ORM_Object_Sync {
 					if ( ! $this->dry_run ) $to_rel->create($to_set);
 				}
 				else if ( $this->check_mode('has_one_set_null', $mode) ) {
-					if ( $this->verbose ) bugw('Skipping an INSERT on '. $class .' because of per-relation sync mode.  Setting NULL instead.');
+					if ( $this->verbose ) bugw('Skipping an INSERT on '. $class .' because of per-relation sync mode.  Setting NULL instead.', $by_ukey, $from_o->get_all());
 					foreach( (array) $def['columns'] as $col ) $has_ones[$col] = null;
 				}
 
 				///  Since they will need $to_rel's primary key below, just skip for now...
 				if ( $this->dry_run ) continue;
+
+				///  Now, recurse and run this on this sub-relational object
+				$this->clone_relations($from_rel, $to_rel, $this->descend_relation( $relation, $relation_search ));
 			}
 			///  We found the same object, so UPDATE
 			else {
@@ -410,12 +444,16 @@ class ORM_Object_Sync {
 						if ( $this->verbose ) bugw('Skipping an UPDATE on '. $class .' because of per-relation sync mode.', $to_rel->get_all());
 					}
 				}
+
+				///  Now, recurse and run this on this sub-relational object
+				$this->clone_relations($from_rel, $to_rel, $this->descend_relation( $relation, $relation_search ));
 			}
 
 			if ( $this->check_mode('link_has_one', $mode) ) {
 				$cols = (array) $def['columns'];
 				foreach( $to_rel->get_primary_key() as $i => $col ) $has_ones[ $cols[$i] ] = $to_rel->get($col);
 			}
+			if ( $this->debugging ) bugw('RELATION has ones: ',$has_ones);
 		}
 
 		return $has_ones;
@@ -440,10 +478,10 @@ class ORM_Object_Sync {
 			$by_ukey = array();
 			foreach ( $ukey as $col ) {
 				if ( ! isset( $to_set[ $col ] ) )
-					$by_ukey[] = "$col IS NULL";
+					continue 2;
 				else $by_ukey[ $col ] = $to_set[ $col ];
 			}
-			///  If is update, then exlude this primary key
+			///  If is update, then exclude this primary key
 			if ( $is_update ) {
 				$exclude = array();
 				foreach( $obj->get_primary_key() as $i => $col ) {
@@ -470,7 +508,7 @@ class ORM_Object_Sync {
 
 	public function check_mode($action, $mode) {
 		if ( $mode == 'complete' ) return true;
-		else if ( $mode == 'link_or_set_null' && in_array($action, array('link_has_one','has_one_set_null')) ) return true;
+		else if ( $mode == 'link_or_set_null' && in_array($action, array('link_has_one','has_one_set_null','link_many_to_many')) ) return true;
 		return false;
 	}
 
@@ -482,6 +520,16 @@ class ORM_Object_Sync {
 	public function get_db($env_name) {
 		$env = $this->envs[$env_name];
 		return call_user_func_array( $env['get_db'], array($env['dbname'], $this) );
+	}
+	public function arrays_differ($ary1, $ary2) {
+		if ( count($ary1) != count( $ary2 ) ) return true;
+		
+		$diff = array_diff( $ary1, $ary2 );
+		if ( ! empty( $diff ) ) return true;
+		$diff = array_diff( $ary2, $ary1 );
+		if ( ! empty( $diff ) ) return true;
+
+		return false;
 	}
 }
 
