@@ -19,142 +19,85 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
     public function updateAction($projects, $tag, $user) {
 
-        $individual_file_rev_updates = array();
-        $individual_file_rev_projects = array();
+		$updates = array();
 
-        ###  Target mode
-        $target_mode_update = false;
-        if ( $tag == 'Target' ) {
-            $target_mode_update = true;
-            $tag = 'HEAD';
+		foreach ( $this->group_projects_by_file($projects) as $item ) {
+			list( $file, $file_projects ) = $item;
+			$rev = $this->get_update_revision($file, $tag, $file_projects);
 
+			if ( $rev !== null && $this->parent_doesnt_exist($file) )
+				@$updates['00_update_dirs'] = $this->add_parent_dirs($file, $file_projects, $updates['00_update_dirs'], $rev);
 
-            ###  Get the max file tag for files in more than one project
-            $file_tags = array();
-			foreach ( $projects as $project ) {
-				$tags = $project->get_file_tags();
-				foreach ( $project->get_affected_files() as $file ) {
-					if ( empty( $file_tags[ $file ] )
-						 ///  OR if this tag is "later" than the stored one
-						 || ( empty($tags[$file])   && $file_tags[ $file ] != 'HEAD' )
-						 || ( ! empty($tags[$file]) && is_numeric( $tags[$file] ) && $file_tags[ $file ] != 'HEAD' && $file_tags[ $file ] < $tags[$file] )
-						 ) $file_tags[ $file ] = isset( $file_tags[ $file ] ) ? $file_tags[ $file ] : 'HEAD';
+			if ( $rev == 'HEAD' ) 
+				$updates['01_head_updates'][] = $item;
+			else if ( $rev === null ) 
+				$updates['02_indiv_updates'][] = array( $file, $file_projects, $this->get_removal_rev($file) );
+			else 
+				$updates['02_indiv_updates'][] = array( $file, $file_projects, $rev );
+		}
+		
+		///  When done, sort the "00_update_dirs" so that parent dirs get added before their children
+		if ( isset( $updates['00_update_dirs'] ) )
+			ksort($updates['00_update_dirs']);
+
+		$complete_cmd = array();
+		$command_output = '';
+
+		///  Run the updates
+		ksort( $updates );
+		$cmd_prefix = $this->stage->config('repo_cmd_prefix');
+        foreach ( $updates as $group => $items ) {
+			$cmds = array();
+			if ( $group == '00_update_dirs' ) {
+				foreach ($items as $item) $cmds[] = array('svn up --depth empty -r'. $item[2] .' "'. addslashes($item[0]) .'"',array($item[1]));
+			}
+			else if ( $group == '01_head_updates' ) {
+				$files = array();  $cmd_projects = array();
+				foreach ($items as $item) { $files[] = addslashes($item[0]); $cmd_projects[] = $item[1]; }
+				$cmds[] = array('svn update --depth empty -rHEAD "'. join('" "',$files) .'"', $cmd_projects);
+			}
+			else if ( $group == '02_indiv_updates' ) {
+				foreach ($items as $item) {
+					if ( is_null( $item[2] ) ) continue; // bad format files get this as get_removal_rev() can't find anything
+					if ( isset( $cmds[ $item[2] ] ) ) $cmds[ $item[2] ][0] .=    ' "'. addslashes($item[0]) .'"';
+					else $cmds[ $item[2] ] = array('svn update --depth empty -r'. $item[2] .' "'. addslashes($item[0]) .'"',array($item[1]));
 				}
 			}
-			foreach ( $file_tags as $file => $tag ) if ( $tag == 'HEAD' ) unset($file_tags[$file]);
-        }
+			else { return trigger_error('Internal error: Invalid update group', E_USER_ERROR); }
 
-        ###  Prepare for a MASS HEAD update if updating to HEAD
-        $doing_indiv_dir_update = array();
-		$mass_head_update_files = array();
-		$mass_head_update_projects = array();
-        if ( $tag == 'HEAD' ) {
-			foreach ( $projects as $project ) {
-				foreach ( $project->get_affected_files() as $file ) {
-					if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-						 ###  Skip this file if in TARGET MODE and it's on the list
-						 || ( $target_mode_update && isset( $file_tags[ $file ]) )
-						 ) continue;
-					$mass_head_update_files[$file] = $file;
-					$mass_head_update_projects[$project->project_name] = $project;
-				}
-			}
+			///  Run the commands
+			foreach ($cmds as $cmd_item) {
+				list($cmd,$project_sets) = $cmd_item;
 
-            ###  Get Target Mode files
-            if ( $target_mode_update ) {
-				foreach ( $projects as $project ) {
-					foreach ( $project->get_affected_files() as $file ) {
-						if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-							 ) continue;
-						if ( ! empty( $file_tags[ $file ] ) && abs( floor( $file_tags[ $file ] ) ) == $file_tags[ $file ] ) { 
-							$individual_file_rev_updates[$file] = array( $file, $file_tags[ $file ] );
-							$individual_file_rev_updates[$file][$project->project_name] = $project;
-						}
-					}
-				}
-            }
-        }
-        ###  All other tags, do individual file updates
-        else {
-			foreach ( $projects as $project ) {
-				foreach ( $project->get_affected_files() as $file ) {
-					if ( is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
-						 ) continue;
-
-					###  Get the tag rev for this file...
-					$sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
-					$rev = $sth->fetch(PDO::FETCH_NUM);
-					$sth->closeCursor();
-					if ( ! empty( $rev ) ) { # I guess if there isn't a rev, we should REMOVE THE FILE?  Maybe later...
-
-						$dir_test = $file;
-						###  Before we do Inidividual Tag updates on files the containing dirs must exist
-						$dirs_to_update = array();
-						while ( ! empty( $dir_test )
-								&& ! is_dir( dirname( $this->stage->env()->repo_base ."/$dir_test" ) )
-								&& $this->stage->env()->repo_base != dirname( $this->stage->env()->repo_base ."/$dir_test" )
-								&& ! array_key_exists(dirname($dir_test), $doing_indiv_dir_update)
-								) {
-							$dir = dirname($dir_test);
-							$dirs_to_update[] = $dir;
-							$doing_indiv_dir_update[$dir] = true;
-
-							$dir_test = $dir; // iterate backwards
-						}
-						///  Need to add in parent-first order
-						///    NOTE: we only need to do the parent one, because the in-between ones will be included
-						if ( count( $dirs_to_update ) ) {
-							$individual_file_rev_updates[$file] = array( array_pop($dirs_to_update), $rev[0] );
-							$individual_file_rev_projects[$file][$project->project_name] = $project;
-						}
-                    
-						$individual_file_rev_updates[] = array( $file, $rev[0] );
-						$individual_file_rev_projects[$file][$project->project_name] = $project;
-					} else {
-						list($first_rev, $error) = $this->get_first_rev( $file );
-						if ( empty( $error ) ) {
-							$rev_before_first = $first_rev - 1;
-							$individual_file_rev_updates[$file] = array( $file, $rev_before_first );
-							$individual_file_rev_projects[$file][$project->project_name] = $project;
-						}
-					}
-				}
-            }
-        }
-
-        ###  Run the MASS HEAD update (if any)
-        if ( ! empty($mass_head_update_files) ) {
-            $head_update_cmd = "svn update ";
-            foreach ( $mass_head_update_files as $file ) $head_update_cmd .= ' '. escapeshellcmd($file);
-            START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-			foreach ( $mass_head_update_projects as $project )
-				$this->log_repo_action($head_update_cmd, $project, $user);
-			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
-            $command_output .= shell_exec("$cmd_prefix$head_update_cmd 2>&1 | cat -");
-            END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-            $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
-        }
-
-        ###  File tag update
-        if ( ! empty($individual_file_rev_updates) ) {
-            foreach ( $individual_file_rev_updates as $update ) {
-                list($file, $rev) = $update;
-
-                $indiv_update_cmd = "svn update -r$rev ". escapeshellcmd($file);
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-				foreach ($individual_file_rev_projects[$file] as $project)
-					$this->log_repo_action($indiv_update_cmd, $project, $user);
-				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
-                $command_output .= shell_exec("$cmd_prefix$indiv_update_cmd 2>&1 | cat -");
+				START_TIMER('REPO_CMD('. $group .')', PROJECT_PROJECT_TIMERS);
+                $command_output .= shell_exec("$cmd_prefix$cmd 2>&1 | cat -");
+				END_TIMER('REPO_CMD('. $group .')', PROJECT_PROJECT_TIMERS);
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-                $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
+
+				///  Log
+				$this->log_projects_action($cmd, $project_sets, $user);
+                $complete_cmd[] = $cmd;
             }
         }
 
         if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
 
-        return( array($cmd, $command_output) );
+        return( array(join(' ; ',$complete_cmd), $command_output) );
     }
+
+	public function get_removal_rev($file) {
+		list($first_rev, $error) = $this->get_first_rev( $file );
+		if ( empty( $error ) ) {
+			$rev_before_first = $first_rev - 1;
+			return $rev_before_first;
+		}
+		return null;
+	}
+
+	public function rev_greater_than($rev1, $rev2, $file) {
+		return( $rev1 > $rev2 );
+	}
 
     public function tagAction($projects, $tag, $user) {
 
@@ -163,7 +106,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         	foreach ( $project->get_affected_files() as $file ) {
         	    ###  Make sure this file exists
         	    if ( file_exists($this->stage->env()->repo_base ."/$file")
-        	         && ! is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
+#        	         && ! is_dir($this->stage->env()->repo_base ."/$file") # Even tho, I guess SVN is OK with versioning directories...  Updating a directory has undesired effects..
         	         ) {
         	        list( $cur_rev ) = $this->get_current_rev($file);
 			
@@ -227,6 +170,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             $parent_dir = dirname($file);
             if ( is_dir($this->stage->env()->repo_base ."/$parent_dir") ) {
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                START_TIMER('REPO_CMD(log all sub-timers)', PROJECT_PROJECT_TIMERS);
+                START_TIMER('REPO_CMD(log)', PROJECT_PROJECT_TIMERS);
     
     
                 
@@ -247,17 +192,12 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     //            #########################
     
     #            bug(`${REPO_CMD_PREFIX}svn log -r HEAD:1 "$file" 2>&1 | cat`); exit;
+                ###  Use HEAD:1 so we aren't limited to don't just get the revs up to the file's current rev
                 $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
 				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
                 $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
+                END_TIMER('REPO_CMD(log)', PROJECT_PROJECT_TIMERS);
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
-
-
-                              ###  Use HEAD:1 so we aren't limited to don't just get the revs up to the file's current rev
-#                bug("${cmd_prefix}svn log -r HEAD:1 \"$file\" 2>&1 | cat"); #exit;
-                $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
-				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
-                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
 
 				###  If we get "file not found" but the file does exist, then try again without the HEAD:1
 				###    NOTE: this MAY be misleading if there are revs after ours but before the file
@@ -267,7 +207,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 					 && file_exists($this->stage->env()->repo_base ."/$file")
 					 ) {
 #                    bug('Retrying',$this->repo_cache['log'][$file] );
+					START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+					START_TIMER('REPO_CMD(log retry)', PROJECT_PROJECT_TIMERS);
 					$this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg "$file" 2>&1 | cat`;
+					END_TIMER('REPO_CMD(log retry)', PROJECT_PROJECT_TIMERS);
+					END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 #                    bug('Retried',$this->repo_cache['log'][$file]);
 				}
 				///  Dig into the log to get Deletion rev
@@ -284,7 +228,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 					}
 					
 #                    bug('Retrying',$this->repo_cache['log'][$file] );
+					START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+					START_TIMER('REPO_CMD(log for del rev)', PROJECT_PROJECT_TIMERS);
 					$parent_verbose = `${cmd_prefix}svn log --verbose -r HEAD:1 --limit 50 "$parent_dir" 2>&1 | cat`;
+					END_TIMER('REPO_CMD(log for del rev)', PROJECT_PROJECT_TIMERS);
+					END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 #                    bug('Parent Log', substr($parent_verbose,0,1000 ));
 					if ( preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $parent_verbose, $m, PREG_SET_ORDER) != 0 ) {
 #                        bug('REVS:', count($m), $m[0]);
@@ -301,6 +249,9 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 						}
 						if ( ! empty( $pre_deletion_rev ) ) {
 
+							$repo_cmd_minimum_prefix = $this->stage->config('repo_cmd_minimum_prefix');
+							$repo_cmd_path    = $this->stage->config('repo_cmd_path');
+
 							///  First check out a copy of it's parent directory
 							if ( ! is_dir( $this->stage->config('operation_tmp_base'). '/ansible' ) ) mkdir($this->stage->config('operation_tmp_base'). '/ansible', 0777, true);
 							$svn_path = $this->get_repository_root();
@@ -310,28 +261,44 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 								`rm -Rf "$cd_path"`;
 								$parent_checkout = $svn_path .( dirname($file) == DIRECTORY_SEPARATOR ? '' : DIRECTORY_SEPARATOR. dirname($file) );
 								$tmp_path = $this->stage->config('operation_tmp_base');
-#                                bug('CHEKOUT PARENT', "cd $tmp_path/ansible; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn co --depth empty -r $pre_deletion_rev \"$parent_checkout\" 2>&1 | cat");
-								$par_checkout = `cd "$tmp_path/ansible"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn co --depth empty -r $pre_deletion_rev "$parent_checkout" 2>&1 | cat`;
+								START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+								START_TIMER('REPO_CMD(co for logcheck)', PROJECT_PROJECT_TIMERS);
+#                                bug('CHEKOUT PARENT', "cd $tmp_path/ansible; ${repo_cmd_minimum_prefix}${repo_cmd_path}svn co --depth empty -r $pre_deletion_rev \"$parent_checkout\" 2>&1 | cat");
+								$par_checkout = `cd "$tmp_path/ansible"; ${repo_cmd_minimum_prefix}${repo_cmd_path}svn co --depth empty -r $pre_deletion_rev "$parent_checkout" 2>&1 | cat`;
 #                                bug($par_checkout);
+								END_TIMER('REPO_CMD(co for logcheck)', PROJECT_PROJECT_TIMERS);
+								END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 
 								if ( is_dir( $cd_path ) ) {
 									///  Now, checkout an pre-deletion copy of this file
 									$file_basename = basename( $file );
-#                                    bug('GETTING UNDELETED FILE', "cd \"$cd_path\"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn update -r $pre_deletion_rev \"$file_basename\" 2>&1 | cat");
-									$up_justthisfile = `cd "$cd_path"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn update -r $pre_deletion_rev "$file_basename" 2>&1 | cat`;
+									START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+									START_TIMER('REPO_CMD(update for logcheck)', PROJECT_PROJECT_TIMERS);
+#                                    bug('GETTING UNDELETED FILE', "cd \"$cd_path\"; ${repo_cmd_minimum_prefix}${repo_cmd_path}svn update -r $pre_deletion_rev \"$file_basename\" 2>&1 | cat");
+									$up_justthisfile = `cd "$cd_path"; ${repo_cmd_minimum_prefix}${repo_cmd_path}svn update -r $pre_deletion_rev "$file_basename" 2>&1 | cat`;
 #                                    bug($up_justthisfile);
+									END_TIMER('REPO_CMD(update for logcheck)', PROJECT_PROJECT_TIMERS);
+									END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 
 									///  Now, get the log, up to just before the deletion
-#                                    bug('Retrying',$this->repo_cache['log'][$file], "cd \"$cd_path\"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn log $limit_arg \"$file_basename\" 2>&1 | cat" );
-									$this->repo_cache['log'][$file] = `cd "$cd_path"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn log $limit_arg "$file_basename" 2>&1 | cat`;
+									START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+									START_TIMER('REPO_CMD(2nd log for logcheck)', PROJECT_PROJECT_TIMERS);
+#                                    bug('Retrying',$this->repo_cache['log'][$file], "cd \"$cd_path\"; ${repo_cmd_minimum_prefix}${repo_cmd_path}svn log $limit_arg \"$file_basename\" 2>&1 | cat" );
+									$this->repo_cache['log'][$file] = `cd "$cd_path"; ${repo_cmd_minimum_prefix}${repo_cmd_path}svn log $limit_arg "$file_basename" 2>&1 | cat`;
 #                                    bug('Retried',$this->repo_cache['log'][$file]);
+									END_TIMER('REPO_CMD(2nd log for logcheck)', PROJECT_PROJECT_TIMERS);
+									END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 									
 									///  Remove the temp dir
 									`rm -Rf "$cd_path"`;
 									///  If dir still exists, then do our best to minimize the file space creep
 									if ( is_dir( $cd_path ) ) {
-										$up_to_remove = `cd "$cd_path"; ${REPO_CMD_MINIMUM_PREFIX}${REPO_CMD_BINARY_PATH}svn update -r HEAD "$file_basename" 2>&1 | cat`;
+										START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+										START_TIMER('REPO_CMD(update to remove for logcheck)', PROJECT_PROJECT_TIMERS);
+										$up_to_remove = `cd "$cd_path"; ${repo_cmd_minimum_prefix}${repo_cmd_path}svn update -r HEAD "$file_basename" 2>&1 | cat`;
 #                                        bug("UP TO REMOVE", $up_to_remove);
+										END_TIMER('REPO_CMD(update to remove for logcheck)', PROJECT_PROJECT_TIMERS);
+										END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 										
 										///  Move the checkout dir out of the way (since we can't delete)
 										$rand_filename = null;  while( is_null( $rand_filename ) || is_dir( $this->stage->config('operation_tmp_base') .'/ansible/'. $rand_filename ) ) $rand_filename = 'DELME__'. md5( rand(1, 1000000). $cd_path ); 
@@ -347,8 +314,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 						}
 					}
 				}
-				
-                END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                END_TIMER('REPO_CMD(log all sub-timers)', PROJECT_PROJECT_TIMERS);
             }
             else {
                 $this->repo_cache['log'][$file] = "svn [status aborted]: no such directory `$parent_dir'";
@@ -378,9 +344,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     
             $round_checkoff = array_flip($round);
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+            START_TIMER('REPO_CMD(cache logs)', PROJECT_PROJECT_TIMERS);
 			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
 			$all_entries = `${cmd_prefix}svn log $round_str 2>&1 | cat`;
     #        bug substr($all_entries, -200);
+            END_TIMER('REPO_CMD(cache logs)', PROJECT_PROJECT_TIMERS);
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
                 if ( preg_match('/^\s*$/s', $entry, $m) ) continue;
@@ -411,13 +379,17 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     public function get_status( $file ) {
     
         ###  If not cached, get it and cache
-        if ( ! $this->repo_cache['status'][$file] ) {
+        if ( ! isset( $this->repo_cache['status'] ) || ! array_key_exists( $file, $this->repo_cache['status'] ) ) {
             $parent_dir = dirname($file);
             if ( is_dir($this->stage->env()->repo_base ."/$parent_dir") ) {
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                START_TIMER('REPO_CMD(status)', PROJECT_PROJECT_TIMERS);
+                START_TIMER('REPO_CMD(status->'. $file .')', PROJECT_PROJECT_TIMERS);
 				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
-#				bug("${cmd_prefix}svn -v status \"$file\" 2>&1 | cat");
-                $this->repo_cache['status'][$file] = `${cmd_prefix}svn -v status "$file" 2>&1 | cat`;
+#				bug(                                 "${cmd_prefix}svn -v status --depth empty \"$file\" 2>&1 | cat");
+                $this->repo_cache['status'][$file] = `${cmd_prefix}svn -v status --depth empty "$file" 2>&1 | cat`;
+                END_TIMER('REPO_CMD(status->'. $file .')', PROJECT_PROJECT_TIMERS);
+                END_TIMER('REPO_CMD(status)', PROJECT_PROJECT_TIMERS);
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
@@ -448,9 +420,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
     
             $round_checkoff = array_flip( $round );
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+            START_TIMER('REPO_CMD(cache statuses)', PROJECT_PROJECT_TIMERS);
 			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
-			$all_entries = `${cmd_prefix}svn status $round_str 2>&1 | cat`;
+			$all_entries = `${cmd_prefix}svn status --depth empty $round_str 2>&1 | cat`;
     #        bug substr($all_entries, -200);
+            END_TIMER('REPO_CMD(cache statuses)', PROJECT_PROJECT_TIMERS);
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             foreach ( preg_split('@===================================================================+\n@', $all_entries) as $entry ) {
                 if ( preg_match('/^\s*$/s', $entry, $m) ) continue;
@@ -623,7 +597,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 				else {
 					//  Then we Truncate the entire table...  (Or later we can add params to do this partially if people are using Ansible diffeerenly)
 					$rv = dbh_query_bind("TRUNCATE TABLE revision_cache");
-					if ( $_SERVER['REMOTE_ADDR'] == '10.1.2.116' ) bug('[ TRUNCATING REVISION CACHE ]');
+#					if ( $_SERVER['REMOTE_ADDR'] == '10.1.2.116' ) bug('[ TRUNCATING REVISION CACHE ]');
 					///  Then continue, so we can store a new value...
 				}
 			}
@@ -685,9 +659,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
 			/// Quickest way to read the SVN address for the repo we are on (6th line of the entries file)...
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+            START_TIMER('REPO_CMD(repo exp token)', PROJECT_PROJECT_TIMERS);
 			$svn_path = $this->get_repository_root();
 			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
 			$svn_info = shell_exec("${cmd_prefix}svn info \"$svn_path\" 2>&1 | cat");
+            END_TIMER('REPO_CMD(repo exp token)', PROJECT_PROJECT_TIMERS);
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 
 			///  The token, is the newest revision of the Repository root
@@ -708,8 +684,6 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 	}
 
 	public function get_repository_root() {
-        global $REPO_CMD_PREFIX;
-
 		///  If we haven't checked the expire token, check now
 		if ( ! $this->checked_repository_root ) {
 			///  Regardless, NOW, we've checked...
@@ -746,8 +720,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             $parent_dir = dirname($dir);
             if ( is_dir($this->stage->env()->repo_base ."/$parent_dir") ) {
                 START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                START_TIMER('REPO_CMD(dir status)', PROJECT_PROJECT_TIMERS);
 				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
                 $this->repo_cache['dir_status'][$cache_key] = `${cmd_prefix}svn -v status "$dir" 2>&1 | cat`;
+                END_TIMER('REPO_CMD(dir status)', PROJECT_PROJECT_TIMERS);
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             }
             else {
@@ -889,8 +865,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         if ( $tag == 'HEAD' ) {
             $head_update_cmd = "svn update";
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+            START_TIMER('REPO_CMD(update entire repo)', PROJECT_PROJECT_TIMERS);
             $this->log_repo_action($head_update_cmd, 'entire_repo', $user);
             $command_output .= shell_exec($this->stage->config('repo_cmd_prefix') ."$head_update_cmd 2>&1 | cat -");
+            END_TIMER('REPO_CMD(update entire repo)', PROJECT_PROJECT_TIMERS);
             END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $head_update_cmd;
         }
@@ -962,10 +940,12 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 foreach ( $individual_file_rev_updates as $update ) {
                     list($up_file, $up_rev) = $update;
 
-                    $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
+                    $indiv_update_cmd = "svn update --depth empty -r$up_rev ". escapeshellcmd($up_file);
                     START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+                    START_TIMER('REPO_CMD(update entire repo indiv)', PROJECT_PROJECT_TIMERS);
                     $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
                     $command_output .= shell_exec($this->stage->config('repo_cmd_prefix') ."$indiv_update_cmd 2>&1 | cat -");
+                    END_TIMER('REPO_CMD(update entire repo indiv)', PROJECT_PROJECT_TIMERS);
                     END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                     $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
                 }
@@ -1037,10 +1017,12 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                     foreach ( $individual_file_rev_updates as $update ) {
                         list($up_file, $up_rev) = $update;
       
-                        $indiv_update_cmd = "svn update -r$up_rev ". escapeshellcmd($up_file);
+                        $indiv_update_cmd = "svn update --depth empty -r$up_rev ". escapeshellcmd($up_file);
                         START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
+						START_TIMER('REPO_CMD(update entire repo indiv2)', PROJECT_PROJECT_TIMERS);
                         $this->log_repo_action($indiv_update_cmd, 'entire_repo', $user);
                         $command_output .= shell_exec($this->stage->config('repo_cmd_prefix') ."$indiv_update_cmd 2>&1 | cat -");
+						END_TIMER('REPO_CMD(update entire repo indiv2)', PROJECT_PROJECT_TIMERS);
                         END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
                         $cmd .= "\n".( strlen($cmd) ? ' ; ' : ''). $indiv_update_cmd;
                     }

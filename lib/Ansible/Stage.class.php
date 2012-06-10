@@ -23,7 +23,10 @@ class Ansible__Stage {
 	public $prod_rollout_phase_host = '';
 	public $url_base = '';
 
-	public $repo_cmd_prefix = 'cd {REPO_BASE}; ';
+	public $repo_cmd_path = '';
+	public $repo_cmd_cd = 'cd {REPO_BASE}';
+	public $repo_cmd_minimum_prefix = ''; # especially for a sudo directive
+	public $repo_cmd_prefix = '{REPO_CMD_CD} ; {REPO_CMD_MINIMUM_PREFIX}{REPO_CMD_PATH}';
 	public $obscure_sandbox_root = false;
 
 	public $project_base = null;
@@ -100,7 +103,7 @@ class Ansible__Stage {
 				if ( ! file_exists( $this->config('db_file_path') ) ) $INIT_DB_NOW = true;
     
 				###  Get an exclusive File_NFSLock on the DB file...
-				$this->db_file_lock = new File_NFSLock( $this->config('db_file_path'),LOCK_EX,10,30*60); # stale lock timeout after 30 minutes
+#				$this->db_file_lock = new File_NFSLock( $this->config('db_file_path'),LOCK_EX,10,30*60); # stale lock timeout after 30 minutes
 			}
 
 			if ( ! empty($this->db_dsn) ) {

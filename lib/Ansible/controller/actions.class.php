@@ -85,6 +85,9 @@ class Ansible__actions extends Stark__Controller__Base {
 
 		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 5); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();
 
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		###  Run the action
 		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 
@@ -130,6 +133,9 @@ class Ansible__actions extends Stark__Controller__Base {
 			foreach ( $projects as $project )
 				$project->set_group($_REQUEST['set_group']);
 		}
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
     
 		###  Run the action
 		list( $cmd, $command_output ) = $ctl->stage->repo()->tagAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
@@ -141,6 +147,9 @@ class Ansible__actions extends Stark__Controller__Base {
 		$file     = $_REQUEST['file'];
 		if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) 
 			return trigger_error("Please don't hack...", E_USER_ERROR);
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
 
 		###  Get the partial log
 		$clog = $ctl->stage->repo()->get_log($file);
@@ -176,6 +185,8 @@ class Ansible__actions extends Stark__Controller__Base {
 		if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) || preg_match('/[^\d\.]+/', $from_rev, $m) || ! preg_match('/^([\d\.]+|local)$/', $to_rev, $m) ) 
 			return trigger_error("Please don't hack...", E_USER_ERROR);
 
+		###  Make other processes not lock and wait for session
+		session_write_close();
 
 		###  Get the partial diff
 		$to_rev_clause = ($to_rev == 'local' ? "" : "-r $to_rev");
@@ -212,6 +223,9 @@ class Ansible__actions extends Stark__Controller__Base {
 #    bug [$repo->get_revs_in_diff($file, qw(1.12.2.12 1.10))];
 #    bug [$repo->get_revs_in_diff($file, qw(1.12.2.12 1.10.11.17))];
 #    bug [$repo->get_revs_in_diff($file, qw(1.10.2.12 1.12.11.17))];
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
 
 		###  Get the partial log
 		$clog = $ctl->stage->repo()->get_log($file);
@@ -253,6 +267,9 @@ class Ansible__actions extends Stark__Controller__Base {
 		###  These can take a while...
 		set_time_limit( 0 );
 
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		###  Run the action
 		list( $cmd, $command_output ) = $ctl->stage->repo()->tagEntireRepoAction( $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 
@@ -266,6 +283,9 @@ class Ansible__actions extends Stark__Controller__Base {
 
 		###  These can take a while...
 		set_time_limit( 0 );
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
 
 		###  Run the action
 		list( $cmd, $command_output ) = $ctl->stage->repo()->updateEntireRepoAction( $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );

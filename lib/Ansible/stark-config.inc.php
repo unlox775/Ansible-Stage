@@ -12,6 +12,8 @@ $config->CONTROLLER_PRELOAD_LIBS
 ///  Controller configuration
 $config->CONTROLLER_CLASS_PREFIX = 'Ansible__';
 
+$config->close_session_after_view = true;
+
 require_once($config->lib_path. '/Ansible/Stage.class.php');
 $config->stage = new Ansible__Stage( '',
 									 array( 'lib_path'    => $config->lib_path,

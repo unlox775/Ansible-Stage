@@ -371,7 +371,7 @@ function report_timers() {
             $report_ary = array();
             foreach ( $tmp_ary as $_ ) {
                 $the_time = is_array($BUG_TIMERS[$_]) ? $BUG_TIMERS[$_][0] : $BUG_TIMERS[$_];
-                $report_ary[] =
+                @$report_ary[] =
                     array( $_,
                            ( sprintf("%.6f",$the_time) ."s" ),
                            ( "x$sp". $BUG_TIMEX[$_][0]

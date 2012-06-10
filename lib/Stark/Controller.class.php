@@ -24,6 +24,7 @@ class Stark__Controller {
 	public $CONTROLLER_PRELOAD_LIBS = array();
 	public $scope_global_vars = array('ctl','controller');
 	public $url_prefix = '/';
+	public $close_session_after_view = false;
 
 	///  Debugging Params
 	public $STARK_PROFILING = false;
@@ -86,7 +87,10 @@ class Stark__Controller {
             $exists = ( method_exists($page_ctl, 'real_method_exists' ) ? $page_ctl->real_method_exists($method) : method_exists($page_ctl, $method ) );
 			if ( $exists ) {
 				$scope = $page_ctl->$method( $this );
-				///  AJAX returnin
+
+				if ( $this->close_session_after_view  ) session_write_close();
+
+				///  AJAX return
 				if ( ! empty( $_SERVER['__STARK_AJAX_MODE__'] ) ) {
 					header('Content-type: application/json');
 					print( ! empty( $_REQUEST['callback'] ) ? 'function '. $_REQUEST['callback'] .'(){return '. json_encode($scope) .'}' : "{}&&\n". json_encode($scope) );
