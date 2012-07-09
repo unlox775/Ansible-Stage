@@ -25,6 +25,8 @@ class ORM_Object_Sync {
 
 	public function sync_objects($main_class, $from_where) {
 
+	    SimpleORM::optimization_mode('memory');
+
 		///  Get all the FROM objects
 		$this->switch_to_db($this->from_env);
 		$from_db = $this->get_db($this->from_env);
@@ -90,7 +92,7 @@ class ORM_Object_Sync {
 			$from_o = $from_ukeys[ $key ];
 
 			///  Save on Memory at the slight cost of performance
-			$GLOBALS['SimpleORM_OBJECT_CACHE'] = array();
+#			$GLOBALS['SimpleORM_OBJECT_CACHE'] = array();
 #		     foreach( array_keys( $GLOBALS['SimpleORM_OBJECT_CACHE'] ) as $a ) foreach ($GLOBALS['SimpleORM_OBJECT_CACHE'][$i] as $o) $o->reset_state();
 			$GLOBALS['ukey_cache'] = array();
 			$GLOBALS['ORM_SQL_LOG'] = array();
@@ -128,6 +130,7 @@ class ORM_Object_Sync {
 					if ( ! $this->dry_run ) $to_o->create($to_set);
 					$to_ukeys[ $key ] = $to_o;
 				}
+				$this->run_post_sync_handler($from_o, $to_ukeys[ $key ], $to_set);
 
 				$this->clone_relations($from_o, $to_ukeys[ $key ], $from_o->clone_relations);
 
@@ -150,7 +153,9 @@ class ORM_Object_Sync {
 				else {
 					if ( $this->verbose ) bugw('FINAL COLLISION '. $collisions .' ON: '. $e->getMessage() ."\n\n");
 					$to_db->rollback();
-					throw $e;
+					if ( $this->verbose ) bugw("rolled back \n\n");
+					die( $e->getMessage() );
+					if ( $this->verbose ) bugw("Thrown \n\n");
 					return false;
 				}
 			}
@@ -246,6 +251,8 @@ class ORM_Object_Sync {
 							if ( ! $this->dry_run ) $to_ukeys[ $key ]->save();
 						}
 
+						$this->run_post_sync_handler($from_rel, $to_ukeys[ $key ], $to_set);
+
 						///  Now, recurse and run this on this sub-relational object
 						$this->clone_relations($from_rel, $to_ukeys[ $key ], $this->descend_relation( $relation, $relation_search ));
 					}
@@ -260,6 +267,8 @@ class ORM_Object_Sync {
 							if ( $this->verbose ) bugw("INSERTING ". get_class($to_rel) .": ", $to_set);
 							if ( ! $this->dry_run ) $to_rel->create($to_set);
 						}
+
+						$this->run_post_sync_handler($from_rel, $to_rel, $to_set);
 					
 						///  Now, recurse and run this on this sub-relational object
 						$this->clone_relations($from_rel, $to_rel, $this->descend_relation( $relation, $relation_search ));
@@ -421,6 +430,8 @@ class ORM_Object_Sync {
 				///  Since they will need $to_rel's primary key below, just skip for now...
 				if ( $this->dry_run ) continue;
 
+				$this->run_post_sync_handler($from_rel, $to_rel, $to_set);
+
 				///  Now, recurse and run this on this sub-relational object
 				$this->clone_relations($from_rel, $to_rel, $this->descend_relation( $relation, $relation_search ));
 			}
@@ -444,6 +455,8 @@ class ORM_Object_Sync {
 						if ( $this->verbose ) bugw('Skipping an UPDATE on '. $class .' because of per-relation sync mode.', $to_rel->get_all());
 					}
 				}
+
+				$this->run_post_sync_handler($from_rel, $to_rel, $to_set);
 
 				///  Now, recurse and run this on this sub-relational object
 				$this->clone_relations($from_rel, $to_rel, $this->descend_relation( $relation, $relation_search ));
@@ -515,12 +528,14 @@ class ORM_Object_Sync {
 	///  Utility Methods
 	public function switch_to_db($env_name) {
 		$env = $this->envs[$env_name];
-		return call_user_func_array( $env['switch_db'], array($env['dbname'], $this) );
+		return call_user_func_array( $env['switch_db'], array($env['dbname']) );
 	}
 	public function get_db($env_name) {
 		$env = $this->envs[$env_name];
-		return call_user_func_array( $env['get_db'], array($env['dbname'], $this) );
+		return call_user_func_array( $env['get_db'], array($env['dbname']) );
 	}
+	public function from_env() { return (object) $this->envs[$this->from_env]; }
+	public function to_env()   { return (object) $this->envs[$this->to_env]; }
 	public function arrays_differ($ary1, $ary2) {
 		if ( count($ary1) != count( $ary2 ) ) return true;
 		
@@ -529,6 +544,15 @@ class ORM_Object_Sync {
 		$diff = array_diff( $ary2, $ary1 );
 		if ( ! empty( $diff ) ) return true;
 
+		return false;
+	}
+
+	public function run_post_sync_handler($from_o, $to_o, $to_set) {
+		$obj = ( empty( $to_o ) || ! $to_o->exists() ) ? $from_o : $to_o;
+		
+		if ( method_exists($obj, 'post_sync_handler') ) {
+			return $obj->post_sync_handler($this, $from_o, $to_o, $to_set );
+		}
 		return false;
 	}
 }
