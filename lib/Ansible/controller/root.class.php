@@ -3,6 +3,8 @@
 class Ansible__root extends Stark__Controller__Base {
 
 	public function directory_handler($ctl, $path) {
+		ini_set("session.cookie_lifetime",86400 * 60);
+		ini_set("session.gc_maxlifetime", 86400 * 60);
 		session_name('ansble_stage_sess_id');
 		session_set_cookie_params(86400*365, '/');
 		session_start();
