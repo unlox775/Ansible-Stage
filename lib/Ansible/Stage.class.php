@@ -221,19 +221,37 @@ class Ansible__Stage {
 
 	public function get_projects_url($projects, $exclude = false) {
 		$params = array();
+		$project_codes = array();
 		foreach ( $projects as $project ) {
 			if ( $exclude && $exclude == $project->project_name ) continue;
+			$project_codes[] = $project->project_name;
 			$params[] = "p[]=". urlencode($project->project_name);
 		}
+ 		if ( strlen(join('&',$params)) > 100 ) {
+ 			$plist_key = md5(print_r($project_codes, true));
+ 			$_SESSION['project_list_sets'][$plist_key] = $project_codes;
+ 			return 'p[]='. urlencode("%%". $plist_key ."%%");
+ 		}
+
 		return join('&',$params);
 	}
 	public function get_projects_from_param($param) {
 		require_once($this->config('lib_path'). '/Ansible/Project.class.php');
 		$projects = array();
 		foreach ( (array) $param as $p ) {
-			$project = new Ansible__Project( $p, $this );
-			if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
-			$projects[] = $project;
+			///  If the first charactar is 
+			if ( preg_match('/^\%\%([a-z0-9]+)\%\%$/i', $p, $m) && isset($_SESSION['project_list_sets'][$m[1]]) ) {
+				foreach ( $_SESSION['project_list_sets'][$m[1]] as $saved_p ) {
+					$project = new Ansible__Project( $saved_p, $this );
+					if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
+					$projects[] = $project;
+				}
+			}
+			else {
+				$project = new Ansible__Project( $p, $this );
+				if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
+				$projects[] = $project;
+			}
 		}
 		return $projects;
 	}

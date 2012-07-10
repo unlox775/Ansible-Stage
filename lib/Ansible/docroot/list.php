@@ -7,26 +7,29 @@
 <form action="project.php" method="GET">
 <?php foreach ( array_keys( $view->projects ) as $group ) { ?>
 	<h2><?= ( isset( $view->groups[$group] ) ? $view->groups[$group] : $group ) ?></h2>
-	<table width=100%>
-		<tr>
-			<th width=1% align=left>&nbsp;</th>
-			<th width=30% align=left>Name</th>
-			<th align=center>Created by</th>
-			<th align=center>Last Modified</th>
-			<th align=center>Number of files</th>
-			<th align=center>Summary File</th>
-			<th align=left>Actions</th>
-		</tr>
 
-		<?php foreach ( $view->projects[ $group ] as $project ) { ?>
+	<div>
+		<input type="checkbox" onchange="var this_checked = $(this).attr('checked'); $(this).parent().find('input').each(function(i,elm){$(elm).attr('checked', this_checked ? true : false ); })" value="1"/> Check All
+		<table width=100%>
+			<tr>
+				<th width=1% align=left>&nbsp;</th>
+				<th width=30% align=left>Name</th>
+				<th align=center>Created by</th>
+				<th align=center>Last Modified</th>
+				<th align=center>Number of files</th>
+				<th align=center>Summary File</th>
+				<th align=left>Actions</th>
+			</tr>
+
+			<?php foreach ( $view->projects[ $group ] as $project ) { ?>
 			<tr>
 				<td>
 					<input type="checkbox" name="p[]" value="<?php echo htmlentities( $project['name'] ) ?>"/>
 				</td>
 				<td>
 					<?php echo ( $view->category == 'archived'
-					  			 ? $project['name']
-					  			 : "<a href=\"project.php?p=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
+					  ? $project['name']
+					  : "<a href=\"project.php?p=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
 					) ?>
 				</td>
 				<td align=center><?= $project['creator'] ?></td>
@@ -35,15 +38,16 @@
 				<td align=center><?= $project['has_summary'] ?></td>
 				<td>
 					<?= ( $view->category == 'archived'
-					      ? "<a href=\"actions/unarchive_project.php?p=". urlencode($project['name']) ."\">Un-Archive</a>"
+					  ? "<a href=\"actions/unarchive_project.php?p=". urlencode($project['name']) ."\">Un-Archive</a>"
 						  : "<a href=\"project.php?p=". urlencode($project['name']) ."\">View</a> | <a href=\"actions/archive_project.php?p=". urlencode($project['name']) ."\">Archive</a>"
 						 )
 					?>
 				</td>
 			</tr>
-		<?php } ?>
-	</table>
-	<input type="submit" value="View Checked Projects"/>
+			<?php } ?>
+		</table>
+		<input type="submit" value="View Checked Projects"/>
+	</div>
 <?php } ?>
 </form>
 
