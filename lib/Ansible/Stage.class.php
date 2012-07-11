@@ -230,7 +230,7 @@ class Ansible__Stage {
  		if ( strlen(join('&',$params)) > 100 ) {
  			$plist_key = md5(print_r($project_codes, true));
  			$_SESSION['project_list_sets'][$plist_key] = $project_codes;
- 			return 'p[]='. urlencode("%%". $plist_key ."%%");
+ 			return 'p[]='. urlencode("$$". $plist_key ."$$");
  		}
 
 		return join('&',$params);
@@ -240,7 +240,7 @@ class Ansible__Stage {
 		$projects = array();
 		foreach ( (array) $param as $p ) {
 			///  If the first charactar is 
-			if ( preg_match('/^\%\%([a-z0-9]+)\%\%$/i', $p, $m) && isset($_SESSION['project_list_sets'][$m[1]]) ) {
+			if ( preg_match('/^\$\$([a-z0-9]+)\$\$$/i', $p, $m) && isset($_SESSION['project_list_sets'][$m[1]]) ) {
 				foreach ( $_SESSION['project_list_sets'][$m[1]] as $saved_p ) {
 					$project = new Ansible__Project( $saved_p, $this );
 					if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
