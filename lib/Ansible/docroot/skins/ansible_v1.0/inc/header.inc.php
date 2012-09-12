@@ -9,7 +9,10 @@
 	<script type="text/javascript" src="<?php echo $ctl->SKIN_BASE ?>/js/ansible.js"></script>
 	<link href="//fonts.googleapis.com/css?family=Exo:300,300italic&subset=latin,latin-ext" rel="stylesheet" type="text/css"/>
 </head>
-<body <?php echo $ctl->stage->onBeta() ? 'class="onBeta"' : ( $ctl->stage->onLive() ? 'class="onLive"' : '' ) ?>>
+<body class="<?php
+	          echo $view->mini ? 'mini' : '';
+              echo ( $stage->env && $ctl->stage->onBeta() ) ? ' onBeta' : ( ($stage->env && $ctl->stage->onLive()) ? ' onLive' : '' );
+               ?>">
 
 <div id="main_container" class="container">
 	<div class="row">
@@ -82,7 +85,7 @@
 						</form>
 					</li>
 					<?php /* HOOK */$__x = $ctl->stage->extend->x('header', 6); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh(); ?>
-					<li><a href="list.php">All Projects</a></li>
+					<li><a href="<?php echo $ctl->stage->safe_self_url('/list.php') ?>">All Projects</a></li>
 				</ul>
 				
 				<?php /* HOOK */$__x = $ctl->stage->extend->x('header', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh(); ?>

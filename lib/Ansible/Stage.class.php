@@ -295,7 +295,7 @@ class Ansible__Stage {
 	public function env($env = null) {
 		/* HOOK */$__x = $this->extend->x('env', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		if ( empty( $env ) ) $env = $this->env;
-		if ( empty( $env ) ) return trigger_error("Tried to load env when \$_SESSION[env] was not set.", E_USER_ERROR);
+		if ( empty( $env ) ) { trace_dump(); return trigger_error("Tried to load env when \$_SESSION[env] was not set.", E_USER_ERROR); }
 		$return = ( isset( $this->staging_areas[ $env ] ) ) ? (object) $this->staging_areas[ $env ] : (object) array();
 		/* HOOK */$__x = $this->extend->x('env', 10, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		return $return;
@@ -338,7 +338,7 @@ class Ansible__Stage {
 		$query_string = preg_replace('/action=(update|tag)/','action=view_project',$query_string);
 		$query_string = preg_replace('/action=(entire_repo_update|entire_repo_tag)/','action=repo_admin',$query_string);
 		
-		return preg_replace('@^\Q'. $stage->url_prefix .'\E@','', $script_name) ."?". $query_string;
+		return $stage->url_prefix . preg_replace('@^\Q'. $stage->url_prefix .'\E@','', $script_name) ."?". $query_string;
 	}
 	public function get_rollout_tree() {
 		$areas = array();

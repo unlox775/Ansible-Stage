@@ -13,11 +13,6 @@
 	<?php require($stage->extend->run_hook('command_output', 10)) ?>
 <?php } ?>
 
-<?php if ( count($view->project_data) == 1 ) { 
-	  $pdata = current($view->project_data);  
-	?>
-	<h2>Project: <?php echo $pdata['project']->project_name ?> [<?= substr($pdata['project']->get_group(), 0, 2) ?>]</h2>
-<?php } ?>
 
 <?php
 /*---- NEW Rollout Table --------------------------------
@@ -211,40 +206,41 @@
 
 <?php foreach ($view->project_data as $pdata ) { ?>
 	
-	<?php if ( count($view->project_data) > 1 ) { ?>
-		<h2>
-			Project: <?php echo $pdata['project']->project_name ?> [<?= substr($pdata['project']->get_group(), 0, 2) ?>]
-			<a href="project.php?<?php echo $pdata['remove_project_url'] ?>">[X]</a>
-		</h2>
-	<?php } ?>
+	<h2>
+		Project: <?php echo $pdata['project']->project_name ?> [<?= substr($pdata['project']->get_group(), 0, 2) ?>]
+		<a href="project.php?<?php echo $pdata['remove_project_url'] ?>">[X]</a>
+	</h2>
 
 	<!-- /////  Affected Files  ///// -->
-	<h4>Affected Files</h4>
-	<table width="100%">
-		<tr><td>&nbsp;</td><td colspan=5 align=center style="border: solid black; border-width: 1px 1px 0px 1px"><b>Revisions</b></td><td>&nbsp;</td><td>&nbsp;</td></tr>
-		<tr>
-			<td width=30%><b>File Name</b></td>
-			<td align=center><b>Current Status</b></td>
-			<td align=center><b>Target</b></td>
-			<td align=center><b>HEAD</b></td>
-			<td align=center><b>PROD_TEST</b></td>
-			<td align=center><b>PROD_SAFE</b></td>
-			<td align=center><b>Changes By</b></td>
-			<td align=left><b>Action</b></td>
-		</tr>
-	
-	    <?php foreach ( $pdata['files'] as $file ) { ?>
+	<table width="100%" class="ansible_one">
+		<thead>
+			<tr class="pre-header"><td>&nbsp;</td><td colspan=5 align=center style="border: solid black; border-width: 1px 1px 0px 1px"><b>Revisions</b></td><td>&nbsp;</td><td>&nbsp;</td></tr>
 			<tr>
-				<td><a href="actions/full_log.php?file=<?php echo urlencode($file['file']) ?>"><?php echo $file['file'] ?></a></td>
-				<td align=center><?php echo $file['cur_vers'] ?></td>
-				<td align=center><?php echo $file['target_vers'] ?></td>
-				<td align=center><?php echo $file['head_vers'] ?></td>
-				<td align=center><?php echo $file['prod_test_vers'] ?></td>
-				<td align=center><?php echo $file['prod_safe_vers'] ?></td>
-				<td align=center><?php echo $file['changes_by'] ?></td>
-				<td align=left  ><?php echo $file['actions'] ?></td>
+				<td width=30%><b>File Name</b></td>
+				<td align=center><b>Current Status</b></td>
+				<td align=center><b>Target</b></td>
+				<td align=center><b>HEAD</b></td>
+				<td align=center><b>PROD_TEST</b></td>
+				<td align=center><b>PROD_SAFE</b></td>
+				<td align=center><b>Changes By</b></td>
+				<td align=left><b>Action</b></td>
 			</tr>
-	    <?php } ?>
+		</thead>
+	
+		<tbody>
+	    	<?php foreach ( $pdata['files'] as $file ) { ?>
+				<tr>
+					<td><a href="actions/full_log.php?file=<?php echo urlencode($file['file']) ?>"><?php echo $file['file'] ?></a></td>
+					<td align=center><?php echo $file['cur_vers'] ?></td>
+					<td align=center><?php echo $file['target_vers'] ?></td>
+					<td align=center><?php echo $file['head_vers'] ?></td>
+					<td align=center><?php echo $file['prod_test_vers'] ?></td>
+					<td align=center><?php echo $file['prod_safe_vers'] ?></td>
+					<td align=center><?php echo $file['changes_by'] ?></td>
+					<td align=left  ><?php echo $file['actions'] ?></td>
+				</tr>
+	    	<?php } ?>
+		</tbody>
 	</table>
 	
 	<?php if ( ! empty( $pdata['other_projects'] ) ) { ?>

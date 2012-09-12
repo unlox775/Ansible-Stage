@@ -16,7 +16,7 @@ class Ansible__root extends Stark__Controller__Base {
 		else if ( $path    != $ctl->stage->url_prefix.'/index.php'
 				  && $path != $ctl->stage->url_prefix.'/change_env.php' 
 				  ) {
-			$ctl->redirect($ctl->stage->url_prefix.'/index.php');
+			$ctl->redirect($ctl->stage->url_prefix.'/index.php?redir='. urlencode($_SERVER['REQUEST_URI']));
 			exit;
 		}
 

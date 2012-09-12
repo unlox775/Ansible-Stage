@@ -20,7 +20,7 @@ class Stark__View {
 	///  When entering a scoped_include() all but these are blown away
 	public $__stark_internal_vars = array('controller','current_form_id','__error','__error_alt','__fill','__fill_alt','__scripts','__submit_fields',
 										  '__submit_fields_alt','last_input_id','last_input_advice_id','last_input_advice','last_input_advice_set_class',
-										  'last_input_advice_script','last_input_fill_value'
+										  'last_input_advice_script','last_input_fill_value','__stark_internal_vars'
 										  );
 
     public function input_attrs($input_type, $field, $fill_obj = null, $this_value = null, $attributes = '') {

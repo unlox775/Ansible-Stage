@@ -36,7 +36,8 @@ if ( empty( $view->cmd ) ) {
 	echo "ERROR : Page Handler didn't exit...";
 	exit;
 }
-<?php require($stage->extend->run_hook('command_output', 0)) ?>
+require($stage->extend->run_hook('command_output', 0));
+?>
 <font color="red">
 	<xmp>> <?php echo $view->cmd ."\n\n". $view->command_output ?></xmp>
 </font>
