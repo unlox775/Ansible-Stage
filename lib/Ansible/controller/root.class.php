@@ -3,6 +3,7 @@
 class Ansible__root extends Stark__Controller__Base {
 
 	public function directory_handler($ctl, $path) {
+		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		ini_set("session.cookie_lifetime",86400 * 60);
 		ini_set("session.gc_maxlifetime", 86400 * 60);
 		session_name('ansble_stage_sess_id');
@@ -16,7 +17,10 @@ class Ansible__root extends Stark__Controller__Base {
 				  && $path != $ctl->stage->url_prefix.'/change_env.php' 
 				  ) {
 			$ctl->redirect($ctl->stage->url_prefix.'/index.php');
+			exit;
 		}
+
+		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
 		///  All dir handlers must return true or it will give a 403: Forbidden
 		return true;

@@ -24,7 +24,7 @@
  #         //  This potision 0 w/ return is useful to give extenders the ability to completely replace your function
  #         //  and run their code instead...
  #     
- #         /* HOOK */$__x = $this->extend->x('my_app_header', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
+ #         /* HOOK */$__x = $this->extend->x('my_app_header', 0, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
  #         
  #         $my_info = $this->get_info();
  #     
@@ -38,7 +38,7 @@
  #         //  it, or check it's contents.  In the hook, they simply need to re-set $my_info and the
  #         //  changes to $my_info will be reflected in this local $my_info.
  #     
- #         /* HOOK */$__x = $this->extend->x('my_app_header', 5); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();
+ #         /* HOOK */$__x = $this->extend->x('my_app_header', 5, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();
  #     
  #         $content = '';
  #         if ( ! empty( $my_info ) ) {
@@ -50,7 +50,7 @@
  #         //
  #         //  This could be a last check to let them change the return value if you want them to be able to.
  #     
- #         /* HOOK */$__x = $this->extend->x('my_app_header', 5); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
+ #         /* HOOK */$__x = $this->extend->x('my_app_header', 5, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
  #         return $prefix. $content .$suffix;
  #     }
  # }
@@ -133,7 +133,6 @@ class Stark__Extend {
 	public $__dont_import_vars = array('__Stark__Extend__scope_var__'=>1,'__Stark__Extend__object__'=>1,'__Stark__Extend__hooks__'=>1,'__Stark__Extend__scope_vars__'=>1,'__x'=>1,'__xi'=>1,
 									   'GLOBALS'=>1,'_SERVER'=>1,'_GET'=>1,'_POST'=>1,'_FILES'=>1,'_COOKIE'=>1,'_SESSION'=>1,'_REQUEST'=>1,'_ENV'=>1,
 									   'HTTP_COOKIE_VARS'=>1,'HTTP_GET_VARS'=>1,'HTTP_POST_FILES'=>1,'HTTP_POST_VARS'=>1,'HTTP_SERVER_VARS'=>1,'HTTP_ENV_VARS'=>1,'HTTP_SESSION_VARS'=>1,
-									   'this'=>1
 									   );
 
 	public function __construct( ) {
@@ -146,7 +145,7 @@ class Stark__Extend {
 
 	public function extract_vars_keys(&$defined_vars) {
 		$out = array();
-		foreach ( array_keys($defined_vars) as $scope_var ) if ( ! isset($this->__dont_import_vars[ $scope_var ] ) ) $out[] = $scope_var;
+		foreach ( array_keys($defined_vars) as $scope_var ) { if ( ! isset($this->__dont_import_vars[ $scope_var ] ) ) $out[] = $scope_var; }
 		return $out;
 	}
 
@@ -260,7 +259,7 @@ class Stark__Extend {
 		$return = $this->dirname_file. '/Extend/run_hooks.inc.php';
 		return $return;
 	}
-	public function x($area, $sequence_from, $sequence_to = null) { $this->run_hook_params = array( $area, $sequence_from, $sequence_to );  return $this; }
+	public function x($area, $sequence_from, $sequence_to = null) { $this->run_hook_params = array( $area, $sequence_from, is_object($sequence_to) ? null : $sequence_to );  return $this; }
 	public function rhni(&$defined_vars, $run_hook_params = null) {
         if ( is_null( $run_hook_params ) ) $run_hook_params = $this->run_hook_params;
 		call_user_func_array(array($this, 'run_hook'), $run_hook_params);
@@ -382,9 +381,9 @@ class Stark__Extend__Scope {
 
 		return $out;
 	}
-	public function set_var($key, &$val) { if ( $this->locked ) return; $this->vars[$key] =& $val; }
-	public function &gv(     $key) { if ( isset( $this->vars[ $key ] ) ) return $this->vars[ $key ]; }
-	public function &get_var($key) { if ( isset( $this->vars[ $key ] ) ) return $this->vars[ $key ]; }
+	public function set_var($key, &$val) { if ( $this->locked ) return; $this->vars[$key == 'this' ? '__this' : $key] =& $val; }
+	public function &gv(     $key) { if ( isset( $this->vars[ $key ] ) ) return $this->vars[ $key == 'this' ? '__this' : $key ]; }
+	public function &get_var($key) { if ( isset( $this->vars[ $key ] ) ) return $this->vars[ $key == 'this' ? '__this' : $key ]; }
 	public function i(           $dont_import = array() ) {
 		$return = $this->extend->import_scope($dont_import);
 		if ( STARK_EXTEND_PROFILE ) END_TIMER('Stark__Extend->include overhead');

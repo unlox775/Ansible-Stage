@@ -208,7 +208,8 @@ class Stark__View {
     }
 
     public function get_current_form_id() {
-        if (      ! empty(   $_REQUEST['ajax_form_name'] ) ) return $_REQUEST['ajax_form_name'];
+        if ( $this->current_form_id != 'main' )                   return $this->current_form_id;
+        else if (      ! empty(   $_REQUEST['ajax_form_name'] ) ) return $_REQUEST['ajax_form_name'];
         else if ( ! empty( $_REQUEST['custom_form_name'] ) ) return $_REQUEST['custom_form_name'];
         else                                                 return $this->current_form_id;
     }
@@ -291,8 +292,8 @@ class Stark__View {
 
     public function are_errors($form_id = null) {
         if ( is_null( $form_id ) ) $form_id = $this->get_current_form_id();
-        if (      $form_id == 'main' ) return( empty( $this->__error ) ? false : true );
-        else if ( $form_id != 'main' ) return( empty( $this->__error_alt[ $form_id ] ) ? false : true );
+        if (      $form_id == 'main' ) return( empty( $this->__error ) ? false : $this->__error );
+        else if ( $form_id != 'main' ) return( empty( $this->__error_alt[ $form_id ] ) ? false : $this->__error_alt[ $form_id ] );
     }
 
 

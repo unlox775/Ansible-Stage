@@ -181,10 +181,13 @@ class Ansible__Stage {
 	###  Staging Environs
 
 	public function env($env = null) {
+		/* HOOK */$__x = $this->extend->x('env', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		if ( empty( $env ) ) $env = $this->env;
 		if ( empty( $env ) ) return trigger_error("Tried to load env when \$_SESSION[env] was not set.", E_USER_ERROR);
-		if ( isset( $this->staging_areas[ $env ] ) ) return (object) $this->staging_areas[ $env ];
-		return( ( isset( $this->sandbox_areas[ $env ] ) ) ? (object) $this->sandbox_areas[ $env ] : (object) array() );
+		if ( isset( $this->staging_areas[ $env ] ) ) $return = (object) $this->staging_areas[ $env ];
+		else                                         $return = ( ( isset( $this->sandbox_areas[ $env ] ) ) ? (object) $this->sandbox_areas[ $env ] : (object) array() );
+		/* HOOK */$__x = $this->extend->x('env', 10, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
+		return $return;
 	}
 	public function get_area_url($role, $action = 'list.php') {
 		$query_string = $_SERVER['QUERY_STRING'];
@@ -207,6 +210,16 @@ class Ansible__Stage {
 		}
 
 		return null;
+	}
+	public function safe_self_url($script_name = null, $query_string = null) {
+		if ( is_null( $script_name  ) ) $script_name  = $_SERVER['SCRIPT_NAME'];
+		if ( is_null( $query_string ) ) $query_string = $_SERVER['QUERY_STRING'];
+		
+		$query_string = preg_replace('/[\&\?](cmd|command_output|tag)=[^\&]+/','',$query_string);
+		$query_string = preg_replace('/action=(update|tag)/','action=view_project',$query_string);
+		$query_string = preg_replace('/action=(entire_repo_update|entire_repo_tag)/','action=repo_admin',$query_string);
+		
+		return preg_replace('@^\Q'. $stage->url_prefix .'\E@','', $script_name) ."?". $query_string;
 	}
 	public function read_only_mode() {
 		return ( in_array( $_SERVER['REMOTE_USER'], $this->guest_users ) ) ? true : false;
@@ -323,8 +336,9 @@ class Ansible__Stage {
 	#########################
 	###  Utility
 
-	public function config($var) { return $this->config_swap($this->$var); }
-	public function config_swap($str) {
+	public function config($var) { return $this->config_swap($this->$var, $var); }
+	public function config_swap($str, $var) {
+		/* HOOK */$__x = $this->extend->x('config_swap', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		return preg_replace_callback('/\{\w+\}/', array($this, 'config_swap_replace'), $str);
 	}
 	public function config_swap_replace($m) {
@@ -428,4 +442,27 @@ function dbh_do_bind( $sql ) {
 }
 function reverse_t_bools(&$ary) { if (! is_array($ary)) return;  foreach($ary as $k => $v) { if ($v === true) $ary[$k] = 't';  if ($v === false) $ary[$k] = 'f'; } }
 
+}
+
+
+function get_relative_time($date) {
+	$diff = time() - $date;
+	if ($diff<60)
+		return $diff . " sec" . ($diff != 1 ? 's' : '') . " ago";
+	$diff = round($diff/60);
+	if ($diff<60)
+		return $diff . " min" . ($diff != 1 ? 's' : '') . " ago";
+	$diff = round($diff/60);
+	if ($diff<24)
+		return $diff . " hr" . ($diff != 1 ? 's' : '') . " ago";
+	$diff = round($diff/24);
+	if ($diff<7)
+		return $diff . " day" . ($diff != 1 ? 's' : '') . " ago";
+	$diff = round($diff/7);
+	if ($diff<4)
+		return $diff . " wk" . ($diff != 1 ? 's' : '') . " ago";
+	$diff = round($diff*7/30);
+	if ($diff<11)
+		return $diff . " mon" . ($diff != 1 ? 's' : '') . " ago";
+	return "on " . date("F j, Y", $date);
 }
