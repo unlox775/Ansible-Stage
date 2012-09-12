@@ -1,6 +1,8 @@
 <?php
 
 //  Load debugging
+if ( ! function_exists('sort_objects') )
+	require_once(dirname(__FILE__). '/../advanced_sort.inc.php');
 if ( ! function_exists('START_TIMER') )
 	require_once(dirname(__FILE__). '/../debug.inc.php');
 if ( ! class_exists('Stark__Extend') )
@@ -17,7 +19,6 @@ class Ansible__Stage {
 	public $url_prefix = null;
 	
 	public $staging_areas = array();
-	public $sandbox_areas = array();
 	public $default_url_protocol = 'http';
 	public $qa_rollout_phase_host   = '';
 	public $prod_rollout_phase_host = '';
@@ -38,6 +39,7 @@ class Ansible__Stage {
 	public $db_username = '';
 	public $db_password = '';
 	public $project_base_ignore_regexp = '{DB_FILE_NAME}|{DB_FILE_NAME}.NFSLock'; # note, this is POSIX egrep-style
+	public $encoding = 'UTF-8';
 
 	public $repo_type  = 'SVN';
 	public $repo_file  = '{lib_path}/Ansible/Repo/{REPO_TYPE}.class.php';
@@ -47,6 +49,18 @@ class Ansible__Stage {
 	public $max_batch_string_size = 4096;
 
 	public $guest_users = array('guest', 'pmgr_tunnel');
+
+	public $sub_stage_name_by_class
+		= array( 'switch_env'       => 'Switch to {ENV_NAME}',
+				 'update_to_target' => 'Update to Target',
+				 'create_rollpoint' => 'Creating Roll Point from {TARGET_ENV_NAME}',
+				 'update_to_that_rollpoint' => 'Updating {TARGET_ENV_NAME} to Roll Point',
+				 'update_to_last_rollback_point' => 'Roll Back to Roll Point',
+				 'update_to_last_rollout_point'  => 'Re-Rolling to Roll Point',
+				 );
+
+	protected $send_cmd_i = 1;
+	protected $flush_i = 1;
 
 	///  Debugging Params
 	public $ANSIBLE_PROFILING = false;
@@ -109,7 +123,14 @@ class Ansible__Stage {
 			if ( ! empty($this->db_dsn) ) {
 				$this->__dbh = new PDO($this->config('db_dsn'), $this->config('db_username'), $this->config('db_password'));  $GLOBALS['orm_dbh'] = $this->__dbh;
 				$this->__dbh->setAttribute( PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION );
-				if ( $INIT_DB_NOW ) {
+
+				///  HACK : For now, just change the below number to whatever you want to upgrade from
+				///    and run this once, 
+				$cur_revision = 0.23;
+#				$cur_revision = 0.20;
+
+				///  Version 0.1.0
+				if ( $INIT_DB_NOW || $cur_revision < 0.10 ) {
 					$this->__dbh->exec("CREATE TABLE file_tag (
                       					   file      character varying(1000) NOT NULL,
                       					   tag       character varying(25) NOT NULL,
@@ -130,6 +151,97 @@ class Ansible__Stage {
 										  committers   text 		 		  NOT NULL
 										)");
 					$this->__dbh->exec("CREATE INDEX expire_token_idx ON revision_cache(expire_token)");
+				}
+
+				///  Version 0.2.1
+				if ( $INIT_DB_NOW || $cur_revision < 0.21 ) {
+					$this->__dbh->exec("CREATE TABLE roll_point (
+										  rlpt_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+										  creation_date INTEGER               NOT NULL DEFAULT (strftime('%s','now')),
+										  point_type   character(5)           NOT NULL,
+                                          created_by NOT NULL
+										)");
+					$this->__dbh->exec("CREATE INDEX point_type_idx ON roll_point(point_type)");
+
+					$this->__dbh->exec("CREATE TABLE rlpt_project (
+										  rlpp_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+										  rlpt_id      INTEGER                NOT NULL,
+										  project      character varying(200) NOT NULL,
+                                          CONSTRAINT rp_file_uk UNIQUE(rlpt_id,project)
+										)");
+					$this->__dbh->exec("CREATE INDEX project_idx ON rlpt_project(project)");
+
+					$this->__dbh->exec("CREATE TABLE rlpt_roll (
+										  rlpr_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+										  rlpt_id       INTEGER               NOT NULL,
+										  creation_date INTEGER               NOT NULL DEFAULT (strftime('%s','now')),
+                                          created_by                          NOT NULL,
+                                          cmd           text                      NULL,
+                                          cmd_output    text                      NULL,
+										  rollback_rlpt_id INTEGER                NULL
+										)");
+					$this->__dbh->exec("CREATE INDEX roll_point_idx ON rlpt_roll(rlpt_id)");
+				}
+				///  Version 0.2.2
+				if ( $INIT_DB_NOW || $cur_revision < 0.22 ) {
+					if ( $INIT_DB_NOW || $cur_revision < 0.21 )
+						$this->__dbh->exec("DROP TABLE rlpt_file");
+					$this->__dbh->exec("CREATE TABLE rlpt_proj_file (
+										  rlpf_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+										  rlpp_id      INTEGER                NOT NULL,
+										  file         character varying(900) NOT NULL,
+										  revision     character varying(32)      NULL,
+                                          CONSTRAINT rp_file_uk UNIQUE(rlpp_id,file)
+										)");
+					$this->__dbh->exec("CREATE INDEX rp_file_idx ON rlpt_proj_file(file)");
+				}
+				///  Version 0.2.3
+				if ( $INIT_DB_NOW || $cur_revision < 0.23 ) {
+					$this->__dbh->exec("ALTER TABLE rlpt_roll 
+                                          ADD COLUMN env character varying(50) NULL
+                                       ");
+					$this->__dbh->exec("CREATE INDEX rlpt_roll_env_idx ON rlpt_roll(env)");
+				}
+
+				///  Debugging for the Database
+				$this_debug = 0;
+				if ( $this_debug ) {
+					$debug = array(
+								   ///  Show DB Tables:
+#								   "SELECT * FROM sqlite_master WHERE type='table'",
+								   ///  Rollpoints and sub-tables
+								   "SELECT *
+                                      FROM roll_point
+                                     ",
+								   "SELECT *
+                                      FROM rlpt_project
+                                     ",
+								   "SELECT *
+                                      FROM rlpt_roll
+                                     ",
+								   "SELECT *
+                                      FROM roll_point
+                                 LEFT JOIN rlpt_project p
+                                 LEFT JOIN rlpt_roll    r
+                                     WHERE roll_point.rlpt_id = p.rlpt_id
+                                       AND roll_point.rlpt_id = r.rlpt_id
+                                       AND p.project IN ('another')
+                                       AND env     = 'staging' AND rollback_rlpt_id IS NOT NULL
+                                     ",
+								   ///  Test Project Lookup
+								   "SELECT *
+                                      FROM roll_point
+                                     WHERE EXISTS(SELECT 1 FROM rlpt_project p WHERE roll_point.rlpt_id = p.rlpt_id AND project IN ('another'))
+						               AND EXISTS(SELECT 1 FROM rlpt_roll    r WHERE roll_point.rlpt_id = r.rlpt_id AND env     = 'staging' AND rollback_rlpt_id IS NOT NULL )
+                                     ",
+#								   "SELECT * FROM rlpt_roll",
+								   );
+
+					foreach ( $debug as $sql ) {
+						bug($sql);
+						$sth = $this->__dbh->query($sql);
+						bug($sth->fetchAll(PDO::FETCH_ASSOC));
+					}
 				}
 			}
 		}
@@ -184,10 +296,17 @@ class Ansible__Stage {
 		/* HOOK */$__x = $this->extend->x('env', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		if ( empty( $env ) ) $env = $this->env;
 		if ( empty( $env ) ) return trigger_error("Tried to load env when \$_SESSION[env] was not set.", E_USER_ERROR);
-		if ( isset( $this->staging_areas[ $env ] ) ) $return = (object) $this->staging_areas[ $env ];
-		else                                         $return = ( ( isset( $this->sandbox_areas[ $env ] ) ) ? (object) $this->sandbox_areas[ $env ] : (object) array() );
+		$return = ( isset( $this->staging_areas[ $env ] ) ) ? (object) $this->staging_areas[ $env ] : (object) array();
 		/* HOOK */$__x = $this->extend->x('env', 10, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		return $return;
+	}
+	public function sandbox_areas() {
+		$areas = array();
+		foreach ( $this->staging_areas as $env => $area ) {
+			if ( ! empty( $area['environment'] ) )
+				$areas[ $env ] = $area;
+		}
+		return $areas;
 	}
 	public function get_area_url($role, $action = 'list.php') {
 		$query_string = $_SERVER['QUERY_STRING'];
@@ -195,7 +314,7 @@ class Ansible__Stage {
 		$query_string = preg_replace('/action=(update|tag)/','action=view_project',$query_string);
 
 		$area = null;  $env = null;
-		foreach ( array_merge(array_keys($this->staging_areas),array_keys($this->staging_areas)) as $test_env ) {
+		foreach ( array_keys($this->staging_areas) as $test_env ) {
 			$area = $this->env( $test_env );
 			if ( $area->role == $role ) {
 				$env = $test_env;
@@ -221,6 +340,102 @@ class Ansible__Stage {
 		
 		return preg_replace('@^\Q'. $stage->url_prefix .'\E@','', $script_name) ."?". $query_string;
 	}
+	public function get_rollout_tree() {
+		$areas = array();
+
+		///  Move the env key into the env because sorting loses the keys
+		$sort_areas = array();  foreach( $this->staging_areas as $env => $area ) { $area['__env'] = $env;  $sort_areas[] = $area; }
+
+		$last_sequence = null;
+		$last_areas = array();
+		foreach ( sort_objects($sort_areas, array('stage_sequence','ASC') ) as $area ) {
+			///  Extract the key
+			$env = $area['__env'];  unset( $area['__env'] );
+
+			if ( ! empty( $area['development'] ) ) continue;
+			if ( empty( $area['stage_sequence'] ) )
+				return trigger_error("ansible config error: $env area has no 'stage_sequence'", E_USER_ERROR);
+
+			///  Link in the 'next_stage' for all past envs
+			$prev_envs = 0;
+			foreach ( $last_areas as $last_env => $x ) {
+				if ( ! empty( $areas[ $last_env ]->proceeds_to ) ) {
+					if ( $areas[ $last_env ]->proceeds_to == $env ) {
+						$areas[ $last_env ]->next_stage = $env;
+						unset( $last_areas[$last_env] );
+						$prev_envs++;
+					}
+				}
+				///  No Explicit flow, then if we have advanced past that sequence
+				///    Then set this as next
+				else if ( $areas[ $last_env ]->stage_sequence != $area['stage_sequence'] ) {
+					$areas[ $last_env ]->next_stage = $env;
+					unset( $last_areas[$last_env] );
+					$prev_envs++;
+				}
+			}
+				
+			///  Add some params to the config's area
+			$add_area = array_merge( $area,
+									 array( 'stage_class' => 'stage',
+										    'rollout_stages' => array(),
+										    'reroll_stages' => array(),
+											'rollback_stages' => array(),
+											)
+									 );
+			
+			///  Depending on environment, set sub-stages
+			///    NOTES:
+			///      1) The rollback (e.g. from Production to Staging) will show as sub-lines of Production
+			///  CASE 1: From dev environment to anything: update to Head, rollback to Next Env
+			if ( $prev_envs == 0 ) {
+				///  Out
+				$add_area['rollout_stages'][]  = (object) array( 'stage_class' => 'switch_env',       		  'target_env' => 'this' );
+				$add_area['rollout_stages'][]  = (object) array( 'stage_class' => 'update_to_target', 		  'target_env' => 'this' );
+				///  Back
+				$add_area['rollback_stages'][] = (object) array( 'stage_class' => 'create_rollpoint',         'target_env' => 'next' );
+				$add_area['rollback_stages'][] = (object) array( 'stage_class' => 'update_to_that_rollpoint', 'target_env' => 'this' );
+				///  Re-Roll
+				$add_area['reroll_stages'][]   = (object) array( 'stage_class' => 'update_to_target',         'target_env' => 'this' );
+			}
+			///  CASE 2: From Non-Dev Env to Another Non-Dev: snapshot revisions, and roll precisely
+			else {
+				///  Out
+				$add_area['rollout_stages'][]  = (object) array( 'stage_class' => 'create_rollpoint', 		  'target_env' => 'this' );
+				$add_area['rollout_stages'][]  = (object) array( 'stage_class' => 'switch_env',       		  'target_env' => 'next' );
+				$add_area['rollout_stages'][]  = (object) array( 'stage_class' => 'update_to_that_rollpoint', 'target_env' => 'next' );
+				///  Back
+				$add_area['rollback_stages'][] = (object) array( 'stage_class' => 'update_to_last_rollback_point', 'target_env' => 'this' );
+				$add_area['rollback_stages'][] = (object) array( 'stage_class' => 'switch_env' );
+				///  Re-Roll
+				$add_area['reroll_stages'][]   = (object) array( 'stage_class' => 'update_to_last_rollout_point' );
+			}
+			
+			$areas[$env] = (object) $add_area;
+			$last_areas[$env] = $env;
+			$last_sequence = $area['stage_sequence'];
+		}
+		return $areas;
+	}
+	public function env_is_first_after_development( $env ) {
+		foreach( $this->get_rollout_tree() as $test_env => $env_area ) {
+			if ( $env_area->next_stage == $env )
+				return false;
+		}
+		return true;
+	}
+	private $get_sub_stage_name_by_class_vars = null;
+	public function get_sub_stage_name_by_class($class, $vars) {
+		$this->get_sub_stage_name_by_class_vars =& $vars;
+		$return = preg_replace_callback('/\{\w+\}/', array($this, 'get_sub_stage_name_by_class_replace'), $this->sub_stage_name_by_class[$class]);
+		$this->get_sub_stage_name_by_class_vars = null;
+		return $return;
+	}
+	public function get_sub_stage_name_by_class_replace($m) {
+		$var = strtolower(trim($m[0],'{}'));
+		return( isset( $this->get_sub_stage_name_by_class_vars[ $var ] ) ? $this->get_sub_stage_name_by_class_vars[ $var ] : "{ERROR: VARS->$var is not defined}" );
+	}
+
 	public function read_only_mode() {
 		return ( in_array( $_SERVER['REMOTE_USER'], $this->guest_users ) ) ? true : false;
 	}
@@ -345,6 +560,60 @@ class Ansible__Stage {
 		$var = strtolower(trim($m[0],'{}'));
 		return( $var == 'repo_base' ? $this->env()->repo_base : (isset( $this->$var ) ? $this->config($var) : "{ERROR: \$config->$var is not defined}") );
 	}
+
+
+	########################
+	###  AJAX output helpers
+
+	public function sendJsCommand($js_str) {
+		$this->send_cmd_i++;
+		echo ("<script>"
+#			  . "if ( output_cmd_block < ". $this->send_cmd_i .") {"
+			  .     $js_str
+#			  .     "; output_cmd_block = ". $this->send_cmd_i .';'
+#			  . "}"
+			  . "</script>"
+			  );
+		$this->flushAJAXOutput();
+	}
+	public function flushAJAXOutput() {
+		echo '<!-- flush('. $this->flush_i++ .') --><!--'. str_repeat(' ',2048) .'-->';
+		ob_implicit_flush(true);
+		ob_end_flush();
+		flush();ob_flush();
+	}
+
+	public function updateCommand($echo, $cmd) {
+		if ( ! $echo ) return;
+		$this->sendJsCommand('if (updateDrawerCommand) updateDrawerCommand('. json_encode($cmd) .')');
+	}
+	public function updateStatus($echo, $status_code, $count = null) {
+		if ( ! $echo ) return;
+
+		$status_str = ( ucwords( str_replace('_',' ',$status_code) )
+						. ( is_null($count) ? '' : ' ( '. $count .' )')
+						);
+
+		$this->sendJsCommand('if (updateDrawerStatus)   updateDrawerStatus('.   json_encode($status_str) .');
+                              if (set_sub_stage_status) set_sub_stage_status('. json_encode($status_code) .');');
+	}
+	public function appendOutput($echo, &$command_output, $append_str) {
+		$command_output .= $append_str;
+		if ( $echo ) echo $append_str;
+		$this->flushAJAXOutput();
+	}
+	public function appendOutputFromShellExec($echo, &$command_output, $cmd) {
+		if ( ! $echo ) $command_output .= shell_exec($cmd);
+		else {
+			$fh = popen($cmd, 'r');
+			
+			while( $read = fread($fh, 1) ) {
+				echo $read;
+				$command_output .= $read;
+			}
+		}
+	}
+
 }
 
 #########################

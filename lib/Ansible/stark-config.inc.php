@@ -26,7 +26,7 @@ $config->stage = new Ansible__Stage( '',
 /////////////////////////
 ///  Ansible Skin Configuration
 
-$ctl->SKIN_BASE = $config->url_prefix .'/skins/ugly_v0.1';
+$ctl->SKIN_BASE = $config->url_prefix .'/skins/ansible_v1.0';
 
 ///  Make scoped_include() keep the $stage var
 $config->scope_global_vars[] = 'stage';

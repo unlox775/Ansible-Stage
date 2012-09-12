@@ -27,7 +27,7 @@ class Ansible__root extends Stark__Controller__Base {
 	}
 
 	public function index_page($ctl) {
-		return( array( 'stage_areas' => array_merge( $ctl->stage->staging_areas, $ctl->stage->sandbox_areas )
+		return( array( 'stage_areas' => $ctl->stage->staging_areas
 					   ) );
 	}
 	
@@ -312,7 +312,8 @@ DELAY
 			}
 		}
 			
-		return array( 'project_data'       => $project_data,
+		return array( 'projects'           => $projects,
+					  'project_data'       => $project_data,
 					  'previous_command'   => $previous_command,
 					  'locally_modified'   => $locally_modified,
 					  'project_url_params' => $ctl->stage->get_projects_url($projects),

@@ -77,6 +77,11 @@ class Ansible__actions extends Stark__Controller__Base {
 
 		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
 
+		###  Target a specific env if requested
+		if ( $_REQUEST['env'] && isset( $ctl->stage->staging_areas[ $_REQUEST['env'] ] ) ) {
+			$ctl->stage->env = $_REQUEST['env'];
+		}
+
 		###  Set Group..
 		if ( ! empty( $_REQUEST['set_group'] ) ) {
 			foreach ( $projects as $project )
@@ -90,6 +95,21 @@ class Ansible__actions extends Stark__Controller__Base {
 
 		###  Run the action
 		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+		$echo = ( ! empty( $_REQUEST['echo'] ) ? true : false );
+		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $projects,
+																		   $_REQUEST['tag'],
+																		   ( ( ! empty( $_SERVER['REMOTE_USER'] ) )
+																			 ? $_SERVER['REMOTE_USER']
+																			 : 'anonymous'
+																			 ),
+																		   $exit
+																		   );
+		###  Parse output for errors
+		if ( 0 /* are errors */ ) {
+		}
+		else $ctl->stage->updateStatus(true,'complete');
+
+		if ( $echo ) exit;
 
 		/* HOOK */$__x = $ctl->stage->extend->x('update_action', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
@@ -134,11 +154,29 @@ class Ansible__actions extends Stark__Controller__Base {
 				$project->set_group($_REQUEST['set_group']);
 		}
 
+		###  Target a specific env if requested
+		if ( $_REQUEST['env'] && isset( $ctl->stage->staging_areas[ $_REQUEST['env'] ] ) ) {
+			$ctl->stage->env = $_REQUEST['env'];
+		}
+
 		###  Make other processes not lock and wait for session
 		session_write_close();
     
 		###  Run the action
-		list( $cmd, $command_output ) = $ctl->stage->repo()->tagAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+		$echo = ( ! empty( $_REQUEST['echo'] ) ? true : false );
+		list( $cmd, $command_output, $point ) = $ctl->stage->repo()->tagAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous', $echo );
+
+		###  Parse output for errors
+		if ( 0 /* are errors */ ) {
+		}
+		else {
+			if ( $point ) {
+				$ctl->stage->sendJsCommand("if ( set_that_rollpoint ) set_that_rollpoint('RP-". $point->rlpt_id ."');");
+			}
+			$ctl->stage->updateStatus(true,'complete');
+		}
+
+		if ( $echo ) exit;
 
 		return $this->generic_cmd_action_return($ctl, 'project.php', $projects, $cmd, $command_output);
 	}
@@ -291,6 +329,11 @@ class Ansible__actions extends Stark__Controller__Base {
 		list( $cmd, $command_output ) = $ctl->stage->repo()->updateEntireRepoAction( $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 
 		return $this->generic_cmd_action_return($ctl, 'admin.php', null, $cmd, $command_output);
+	}
+
+	public function refresh_file_lists_page($ctl) {
+		$ctl->stage->updateStatus(true,'complete');
+		exit;
 	}
 
 }

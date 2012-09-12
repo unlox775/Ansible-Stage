@@ -64,6 +64,33 @@ class Ansible__Repo {
 			}
 			return ( is_null( $rev ) ? 'HEAD' : $rev );
 		}
+		else if ( preg_match('/^RP-(\d+)$/',$tag, $m) ) {
+			require_once(dirname(__FILE__) .'/model/RollPoint.class.php');
+
+			///  Get the rollback point
+			$point = new Ansible__RollPoint($m[1]);
+			if ( ! $point->exists() )
+				trigger_error("Non-existant Roll Point: ". $tag, E_USER_ERROR);
+
+			///  Check out that this rollout includes all the files from
+			///    this rollback point
+			if ( ! $point->includes_same_projects($projects) )
+				trigger_error("Not all selected projects are in the selected roll point: ". $tag, E_USER_ERROR);
+
+			///  Search for this file in the RollPoint
+			$files = array();
+			foreach ($point->projects as $project) {
+				foreach ( $project->files as $rp_file ) {
+					if ( $rp_file->file == $file )
+						return $rp_file->revision;
+				}
+			}
+			///  If we couldn't find it, return null = Roll to deleted revision
+			///    Note: this should *NEVER* happen, because if the tag is
+			///      RP-, then group_projects_by_file() should have limited
+			///      the file list to items in the RollPoint.
+			return null;
+		}
 		else {
 			///  Read from File Tag table
 			$sth = dbh_query_bind("SELECT revision FROM file_tag WHERE file = ? AND tag = ?", $file, $tag);
@@ -73,15 +100,57 @@ class Ansible__Repo {
 		}
 	}
 
-	public function group_projects_by_file($projects) {
-		$files = array();
-		foreach ($projects as $project) {
-			foreach ( $project->get_affected_files() as $file ) {
-				if ( ! isset( $files[ $file ] ) ) $files[ $file ] = array($file, array($project->project_name => $project));
-				else                              $files[ $file ][1][                  $project->project_name] = $project;
+	public function group_projects_by_file($projects, $tag, $source) {
+		if ( preg_match('/^RP-(\d+)$/',$tag, $m) && $source == 'roll_point' ) {
+			require_once(dirname(__FILE__) .'/model/RollPoint.class.php');
+
+			///  Get the rollback point
+			$point = new Ansible__RollPoint($m[1]);
+			if ( ! $point->exists() )
+				trigger_error("Non-existant Roll Point: ". $tag, E_USER_ERROR);
+
+			$files = array();
+			foreach ($point->projects as $project) {
+				foreach ( $project->files as $file ) {
+					if ( ! isset( $files[ $file->file ] ) ) $files[ $file->file ] = array($file->file, array($project->project_name => $project));
+					else                                    $files[ $file->file ][1][                  $project->project_name] = $project;
+				}
 			}
+			return array_values($files);
+		} else if ( preg_match('/^RP-(\d+)$/',$tag, $m) && $source == 'project' ) {
+			require_once(dirname(__FILE__) .'/model/RollPoint.class.php');
+
+			///  Get the rollback point
+			$point = new Ansible__RollPoint($m[1]);
+			if ( ! $point->exists() )
+				trigger_error("Non-existant Roll Point: ". $tag, E_USER_ERROR);
+
+			///  First, pre-get a searchable list of the RollPoint's files
+			$rp_files = array();
+			foreach ($point->projects as $project) {
+				foreach ( $project->files as $file ) $rp_files[ $file->file ] = true;
+			}
+
+			///  Then compile the list from the cross-product of RP and Project
+			$files = array();
+			foreach ($projects as $project) {
+				foreach ( $project->get_affected_files() as $file ) {
+					if ( ! isset(  $rp_files[ $file ] ) ) continue; # skip if not in RollPoint
+					if ( ! isset( $files[ $file ] ) ) $files[ $file ] = array($file, array($project->project_name => $project));
+					else                              $files[ $file ][1][                  $project->project_name] = $project;
+				}
+			}
+			return array_values($files);
+		} else {
+			$files = array();
+			foreach ($projects as $project) {
+				foreach ( $project->get_affected_files() as $file ) {
+					if ( ! isset( $files[ $file ] ) ) $files[ $file ] = array($file, array($project->project_name => $project));
+					else                              $files[ $file ][1][                  $project->project_name] = $project;
+				}
+			}
+			return array_values($files);
 		}
-		return array_values($files);
 	}
 
 	public function parent_doesnt_exist($file) {
@@ -116,5 +185,61 @@ class Ansible__Repo {
 		return $existing;
 	}
 
+	///  Create rollback point optionally
+	public function record_roll_point($projects, $tag, $user, $file_source) {
+		require_once(dirname(__FILE__) .'/model/RollPoint.class.php');
+
+		///  If they are Rolling to an existing rollpoint, just add a Roll
+		if ( preg_match('/^RP-(\d+)$/',$tag, $m) ) {
+
+			///  Get the rollback point
+			$point = new Ansible__RollPoint($m[1]);
+			if ( ! $point->exists() )
+				trigger_error("Non-existant Roll Point: ". $tag, E_USER_ERROR);
+
+			///  Check out that this rollout includes all the files from
+			///    this rollback point
+			if ( ! $point->includes_same_projects($projects) )
+				trigger_error("Not all selected projects are in the selected roll point: ". $tag, E_USER_ERROR);
+
+			///  Create new ROLL entry
+			$point_roll = $point->new_roll($user, $this->stage->env);
+
+			///  If we are rolling out to a 'rollout' point then auto-make a Rollback point
+			if ( $point->point_type == 'rollout' ) {
+				list($tag_cmd, $tag_command_output, $rb_point) = $this->tagAction($projects, 'rollback', $user, false, $file_source);
+#				bug('TAGGED rollback!!', $tag_cmd, $tag_command_output);
+				$point_roll->set_and_save(array('rollback_rlpt_id' => $rb_point->rlpt_id));
+			}
+		}
+		///  For all other tags, create a new RollPoint 
+		else {
+			///  Create new RollPoint
+			$point = new Ansible__RollPoint();
+			$point->create(array( 'point_type' => 'rollout',
+								  'created_by' => $user,
+								  ));
+
+			$seen_projects = array();
+			$seen_files = array();
+			$files_by_proj = $this->group_projects_by_file($projects, $tag, $file_source);
+			foreach ( $files_by_proj as $item ) {
+				list( $file, $file_projects ) = $item;
+				foreach ( $file_projects as $project ) {
+					if ( ! isset( $seen_projects[ $project->project_name ] ) )
+						$seen_projects[ $project->project_name ] = $point->add_project($project->project_name);
+					
+					if ( ! isset( $seen_files[ $project->project_name ][ $file ] ) )
+						$seen_projects[ $project->project_name ]->add_file($file, '['. $tag .']');
+					$seen_files[ $project->project_name ][ $file ] = true;
+				}
+			}
+
+			///  Create new ROLL entry
+			$point_roll = $point->new_roll($user, $this->stage->env);
+		}
+
+		return $point_roll;
+	}
 	
 }
