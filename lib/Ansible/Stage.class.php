@@ -332,13 +332,26 @@ class Ansible__Stage {
 	}
 	public function safe_self_url($script_name = null, $query_string = null) {
 		if ( is_null( $script_name  ) ) $script_name  = $_SERVER['SCRIPT_NAME'];
+		if ( strlen($stage->url_prefix) > 0 && substr($script_name, 0, strlen($stage->url_prefix) ) == $stage->url_prefix ) $script_name = substr($script_name, strlen($stage->url_prefix));
 		if ( is_null( $query_string ) ) $query_string = $_SERVER['QUERY_STRING'];
+
+		parse_str($query_string, $query_params);
 		
-		$query_string = preg_replace('/[\&\?](cmd|command_output|tag)=[^\&]+/','',$query_string);
-		$query_string = preg_replace('/action=(update|tag)/','action=view_project',$query_string);
-		$query_string = preg_replace('/action=(entire_repo_update|entire_repo_tag)/','action=repo_admin',$query_string);
+		///  Hide command output...
+		foreach ( array('cmd','command_output','tag') as $x ) if ( isset( $query_params[$x] ) ) unset( $query_params[$x] );
+
+		///  Scrub script name to not stay on pages that run un-wanted actions a second time
+		if ( preg_match('@/actions/(update|tag).php@',$query_string) ) $script_name = '/project.php';
+		if ( preg_match('@/actions/(entire_repo_update|entire_repo_tag).php@',$query_string) ) $script_name = '/repo_admin.php';
 		
-		return $stage->url_prefix . preg_replace('@^\Q'. $stage->url_prefix .'\E@','', $script_name) ."?". $query_string;
+		///  Condense long project URLs...
+		$projects = $this->read_projects_param( $query_params['p'] );
+		if ( ! empty( $projects ) ) {
+			parse_str($this->get_projects_url($projects), $p_url);
+			$query_params = array_merge( $query_params, $p_url);
+		}
+
+		return $stage->url_prefix . preg_replace('@^\Q'. $stage->url_prefix .'\E@','', $script_name) . (empty($query_params) ? '' : "?". http_build_query( $query_params ) );
 	}
 	public function get_rollout_tree() {
 		$areas = array();
@@ -450,10 +463,11 @@ class Ansible__Stage {
 	public function get_projects_url($projects, $exclude = false) {
 		$params = array();
 		$project_codes = array();
-		foreach ( $projects as $project ) {
-			if ( $exclude && $exclude == $project->project_name ) continue;
-			$project_codes[] = $project->project_name;
-			$params[] = "p[]=". urlencode($project->project_name);
+		foreach ( (array) $projects as $project ) {
+			$project_name = ( $project instanceof Ansible__Project ? $project->project_name : $project );
+			if ( $exclude && $exclude == $project_name ) continue;
+			$project_codes[] = $project_name;
+			$params[] = "p[]=". urlencode($project_name);
 		}
  		if ( strlen(join('&',$params)) > 100 ) {
  			$plist_key = md5(print_r($project_codes, true));
@@ -463,23 +477,28 @@ class Ansible__Stage {
 
 		return join('&',$params);
 	}
-	public function get_projects_from_param($param) {
-		require_once($this->config('lib_path'). '/Ansible/Project.class.php');
+	public function read_projects_param($param) {
 		$projects = array();
 		foreach ( (array) $param as $p ) {
 			///  If the first charactar is 
 			if ( preg_match('/^\$\$([a-z0-9]+)\$\$$/i', $p, $m) && isset($_SESSION['project_list_sets'][$m[1]]) ) {
 				foreach ( $_SESSION['project_list_sets'][$m[1]] as $saved_p ) {
-					$project = new Ansible__Project( $saved_p, $this );
-					if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
-					$projects[] = $project;
+					$projects[] = $saved_p;
 				}
 			}
 			else {
-				$project = new Ansible__Project( $p, $this );
-				if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
-				$projects[] = $project;
+				$projects[] = $p;
 			}
+		}
+		return $projects;
+	}
+	public function get_projects_from_param($param) {
+		require_once($this->config('lib_path'). '/Ansible/Project.class.php');
+		$projects = array();
+		foreach ( $this->read_projects_param($param) as $p ) {
+			$project = new Ansible__Project( $p, $this );
+			if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
+			$projects[] = $project;
 		}
 		return $projects;
 	}

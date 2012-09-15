@@ -14,12 +14,14 @@
 			<thead>
 				<tr>
 					<td width="1%"  align="left" class="first">&nbsp;</td>
-					<td width="30%" align="left" class="first">Name</td>
+					<td width="30%" align="left" class="first project-name-column">Name</td>
 					<td align="center" class="hide-on-phones">Created&nbsp;by</td>
 					<td align="center" class="hide-on-phones">Modified</td>
 					<td align="center"># Files</td>
+					<!--
 					<td align="center" class="hide-on-phones">Summary File</td>
 					<td align="left">Actions</td>
+					-->
 				</tr>
 			</thead>
 			<tbody>
@@ -28,7 +30,7 @@
 						<td>
 							<input type="checkbox" name="p[]" value="<?php echo htmlentities( $project['name'] ) ?>"/>
 						</td>
-						<td>
+						<td class="project-name-column" title="<?php echo $project['name'] ?>">
 							<?php echo ( $view->category == 'archived'
 							  			 ? $project['name']
 							  			 : "<a href=\"project.php?p=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
@@ -37,6 +39,7 @@
 						<td align="center" class="hide-on-phones"><?= $project['creator'] ?></td>
 						<td align="center" class="hide-on-phones"><?= $project['mod_time_display'] ?></td>
 						<td align="center"><?= $project['aff_file_count'] ?></td>
+						<!-- 
 						<td align="center" class="hide-on-phones"><?= $project['has_summary'] ?></td>
 						<td>
 							<?= ( $view->category == 'archived'
@@ -45,6 +48,7 @@
 								 )
 							?>
 						</td>
+						-->
 					</tr>
 				<?php } ?>
 			<tbody>

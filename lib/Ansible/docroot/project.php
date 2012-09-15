@@ -220,8 +220,8 @@
 				<td align=center><b>Current Status</b></td>
 				<td align=center><b>Target</b></td>
 				<td align=center><b>HEAD</b></td>
-				<td align=center><b>PROD_TEST</b></td>
-				<td align=center><b>PROD_SAFE</b></td>
+				<td align=center><b>Rollout Tag</b></td>
+				<td align=center><b>Rollback Tag</b></td>
 				<td align=center><b>Changes By</b></td>
 				<td align=left><b>Action</b></td>
 			</tr>

@@ -25,8 +25,10 @@ a { color: #3f9fb2; }
 	left: 17px;
 	margin: 11px 0 0 0;
 	overflow: hidden;
+	z-index: 10;
 }
-#main_logo > .inner {
+#main_logo > .inner a {
+	display: block;
 	margin-top: -11px;
 	font: 42px 'Exo', sans-serif;
 	font-style: italic;
@@ -35,14 +37,14 @@ a { color: #3f9fb2; }
 	letter-spacing: -1px;
 	color: #646464;
 }
-#main_logo .sib { letter-spacing: 0px; }
-#main_logo .stage { color: #d0d2d7; Letter-spacing: -2px; }
+#main_logo a .sib { letter-spacing: 0px; }
+#main_logo a .stage { color: #d0d2d7; Letter-spacing: -2px; }
 
 #main_header_nav {
 	position: absolute;
-	top: 28px;
+	bottom: 7px;
 	right: 14px;
-	width: 600px;
+	width: 850px;
 }
 #main_header_nav ul, #main_header_nav ul li { list-style: none; margin: 0; padding: 0; }
 #main_header_nav ul li {
@@ -71,23 +73,31 @@ table { border: 0; }
 
 table.ansible_one { width: 100%; }
 table.ansible_one thead { background: none; }
+table.ansible_one thead tr th, 
 table.ansible_one thead tr td {
 	font-weight: normal;
 	border-bottom: 6px solid #12751e;
 	text-align: center;
 	font-size: 14px;
 	padding: 2px 10px;
+	vertical-align: bottom;
 }
+table.ansible_one thead tr th.first, table.ansible_one thead tr th:first-child,
 table.ansible_one thead tr td.first, table.ansible_one thead tr td:first-child { text-align: left; border-bottom: 6px solid #646464; }
+table.ansible_one thead tr th.last,  table.ansible_one thead tr th:last-child,
 table.ansible_one thead tr td.last,  table.ansible_one thead tr td:last-child  { text-align: left; }
+table.ansible_one thead tr.pre-header th,
 table.ansible_one thead tr.pre-header td { border-bottom: none; }
 
+table.ansible_one tbody tr th,
 table.ansible_one tbody tr td {
 	text-align: center;
 	font-size: 14px;
 	padding: 4px 10px;
 }
+table.ansible_one tbody tr th.first, table.ansible_one tbody tr th:first-child,
 table.ansible_one tbody tr td.first, table.ansible_one tbody tr td:first-child { text-align: left; }
+table.ansible_one tbody tr th.last,  table.ansible_one tbody tr th:last-child,
 table.ansible_one tbody tr td.last,  table.ansible_one tbody tr td:last-child  { text-align: left; }
 table.ansible_one tbody tr:last-child  { border-bottom: 6px solid #ebebeb; }
 
@@ -196,11 +206,18 @@ body.onLive .container .row {
 body.mini #main_header_nav { display: none; }
 
 body.mini #main_logo { margin: 34px 0 0 0; }
-body.mini #main_logo > .inner {
+body.mini #main_logo > .inner a {
 	background: url(../images/logo_large.png) 0 34px no-repeat;
 	font-size: 125px;
 	padding-left: 89px;
 }
+body.mini #main_logo {
+	left: 86px;
+}
+body.mini #main_logo > .inner a {
+	color: #474747;
+}
+body.mini #main_logo a .stage { color: #9d9fa3; }
 
 body.mini .container .row {
 	background: none;
@@ -226,13 +243,6 @@ body.mini #main_header > .inner {
 	height: 227px;
 	border: none;
 }
-body.mini #main_logo {
-	left: 86px;
-}
-body.mini #main_logo > .inner {
-	color: #474747;
-}
-body.mini #main_logo .stage { color: #9d9fa3; }
 
 
 
@@ -246,3 +256,9 @@ body.mini #main_logo .stage { color: #9d9fa3; }
 .choose-sandbox ul { margin-left: 30px; }
 .choose-sandbox li { list-style-type: square; }
 .choose-sandbox li { font-size: 22px; }
+
+.ansible_one .project-name-column {
+	max-width: 562px;
+	overflow: hidden;
+	text-align: left;
+}
