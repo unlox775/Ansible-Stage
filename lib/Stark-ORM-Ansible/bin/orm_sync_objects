@@ -41,7 +41,6 @@ foreach( $argv as $arg ) {
 	else if ( empty( $to_dbname   ) ) $to_dbname = $arg;
 	else $from_where .= "\n    AND ". $arg;
 }
-
 if ( ! empty( $main_class ) && ! class_exists( $main_class ) )
 	include("models/". str_replace('__','/',$main_class) .".php");
 
@@ -77,4 +76,3 @@ $sync->from_env = $from_dbname;
 $sync->to_env = $to_dbname;
 
 $sync->sync_objects($main_class, $from_where);
-

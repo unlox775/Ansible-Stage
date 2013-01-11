@@ -17,7 +17,7 @@
 <div id="main_container" class="container">
 	<div class="row">
 		<div id="main_header"><div class="inner">
-			<div id="main_logo"><div class="inner"><a href="<?php echo $ctl->stage->url_prefix ?>/list.php"> An<span class="sib">sib</span>le<span class="stage">Stage</a></span></div></div>
+			<div id="main_logo"><div class="inner"><a href="<?php echo $stage->url_prefix ?>/list.php"> An<span class="sib">sib</span>le<span class="stage">Stage</a></span></div></div>
 			
 			<? if ( ! isset( $view->mini ) ) { ?>
 				<div id="main_header_nav">
@@ -87,7 +87,7 @@
 							</form>
 						</li>
 						<?php /* HOOK */$__x = $ctl->stage->extend->x('header', 6); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh(); ?>
-						<li><a href="<?php echo $ctl->stage->safe_self_url('/list.php') ?>">All Projects</a></li>
+						<li><a href="<?php echo $ctl->stage->safe_self_url($stage->url_prefix .'/list.php') ?>">All Projects</a></li>
 					</ul>
 					
 					<?php /* HOOK */$__x = $ctl->stage->extend->x('header', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh(); ?>

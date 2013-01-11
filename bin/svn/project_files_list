@@ -61,6 +61,7 @@ foreach my $file ( split("\n",`cat $SYSTEM_PROJECT_BASE/$curr_project/affected_f
     next if ! length $file;
 	next if @exists && ! -e $SYSTEM_SVN_BASE.'/'.$file;
     #next if -d "$SYSTEM_SVN_BASE/$file";
+    next if ! -e "$SYSTEM_SVN_BASE/$file";
 
     print "$file\n";
 }

@@ -3,12 +3,14 @@
 class Ansible__root extends Stark__Controller__Base {
 
 	public function directory_handler($ctl, $path) {
-		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
+		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', -1); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		ini_set("session.cookie_lifetime",86400 * 60);
 		ini_set("session.gc_maxlifetime", 86400 * 60);
 		session_name('ansble_stage_sess_id');
 		session_set_cookie_params(86400*365, '/');
 		session_start();
+
+		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
 		///  Read the env
 		if ( ! empty( $_SESSION['env'] ) ) $ctl->stage->env = $_SESSION['env'];

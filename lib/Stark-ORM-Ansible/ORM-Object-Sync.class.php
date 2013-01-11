@@ -24,7 +24,6 @@ class ORM_Object_Sync {
 	}
 
 	public function sync_objects($main_class, $from_where) {
-
 	    SimpleORM::optimization_mode('memory');
 
 		///  Get all the FROM objects
@@ -32,6 +31,7 @@ class ORM_Object_Sync {
 		$from_db = $this->get_db($this->from_env);
 		$from_db->beginTransaction(); ///  just in case
 		$from = $main_class::get_where(array($from_where)); 
+
 
 		///  Switch, as we are working on the TO db now...
 		$this->switch_to_db($this->to_env);
@@ -258,6 +258,7 @@ class ORM_Object_Sync {
 					}
 					///  Otherwise, only the FROM exists, so INSERT
 					else {
+                       if ( $this->debugging ) bugw("Did not Find has_many ". get_class($from_rel) ." in TO side!");
 						if ( $this->check_mode('create', $mode) ) {
 							///  Check for other-UKey collisions (and throw a Retry-Later Exception if so)
 							$this->check_for_other_ukey_collisions( $from_rel, $to_set, /* Is Update = */false, /* Exception = */true, "INSERTING ". get_class($from_rel) ." for ". get_class($from_o) .'->'.$relation.'('.$def['relationship'].')' );
@@ -512,9 +513,23 @@ class ORM_Object_Sync {
 
 			///  Either Throw an Exception, or return true
 			if ( ! empty( $collision ) ) {
-				if ( $throw_exception ) 
-					throw new ORM_Object_Sync__HadCollisionRetryAtEnd($operation_type .' ('. var_export($by_ukey, true) .')');
-				else return true;
+
+               if ( $this->verbose ) bugw("COLLISION ON Unique Key.  Experimental: Deleting ". get_class($collision) ." object that we collided with. A later update will hopefully re-insert it without issue.  FINGERS CROSSED!INSERTING:", $by_ukey, $collision->get_all());
+
+               if ( $collision->can_mark_deleted() ) {
+                   $collision->mark_deleted();
+               }
+               else $collision->delete();
+               return true;
+
+
+#              if ( $this->debugging ) bugw(__LINE__);
+#              if ( $throw_exception ) {
+#                          if ( $this->debugging ) bugw(__LINE__);
+#                  throw new ORM_Object_Sync__HadCollisionRetryAtEnd($operation_type .' ('. var_export($by_ukey, true) .')');
+#              }
+#              else return true;
+#                          if ( $this->debugging ) bugw(__LINE__);
 			}
 		}
 	}
@@ -547,7 +562,7 @@ class ORM_Object_Sync {
 		return false;
 	}
 
-	public function run_post_sync_handler($from_o, $to_o, $to_set) {
+	public function run_post_sync_handler($from_o, $to_o, &$to_set) {
 		$obj = ( empty( $to_o ) || ! $to_o->exists() ) ? $from_o : $to_o;
 		
 		if ( method_exists($obj, 'post_sync_handler') ) {

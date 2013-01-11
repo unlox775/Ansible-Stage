@@ -573,7 +573,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         $cstat = $this->get_status($file);
 
         $cur_rev = null;  $error = '';  $status = '';  $state_code = '';  $is_modified = false;
-        if ( preg_match('/^(\w?)\s*(\d+)\s+\d+\s/', $cstat, $m) ) {
+        if ( preg_match('/^(\w?).\s*?(\d+)\s+\d+\s/', $cstat, $m) ) {
             $letter = $m[1];
             if ( empty($letter) ) $letter = '';
             $letter_trans = array( '' => 'Up-to-date', 'M' => 'Locally Modified', 'A' => 'To-be-added' );
@@ -581,7 +581,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 			///  Determine the revision by taking the first revision number and working backwards in the revision list
 			///    until we find an actual revision.  We used to trust the second number, but that didn't take into
 			///    account SVN move operations, maybe because of and SVN bug ???  Either way, this is the only safe way.
-            if ( preg_match('/^\w?\s*(\d+)\s+\d+\s/', $cstat, $m) ) {
+            if ( preg_match('/^\w?.\s*?(\d+)\s+\d+\s/', $cstat, $m) ) {
                 $actual_rev = $m[1];
 
 				///  Loop thru the revs from high to low until we pass the rev we just saw in the status output

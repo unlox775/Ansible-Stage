@@ -36,7 +36,7 @@ class Ansible__actions extends Stark__Controller__Base {
 
 	public function archive_project_page ($ctl) {
 		if ( ! empty( $_REQUEST['p'] ) ) {
-			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-]/', $_REQUEST['p']) ) 
+			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-\.]/', $_REQUEST['p']) ) 
 				return trigger_error("Please don't hack...", E_USER_ERROR);
 			$project = new Ansible__Project( $_REQUEST['p'], $ctl->stage );
 			if ( $project->exists() && ! $project->archived() ) {
@@ -94,7 +94,7 @@ class Ansible__actions extends Stark__Controller__Base {
 		session_write_close();
 
 		###  Run the action
-		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
+#		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $projects, $_REQUEST['tag'], ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous' );
 		$echo = ( ! empty( $_REQUEST['echo'] ) ? true : false );
 		list( $cmd, $command_output ) = $ctl->stage->repo()->updateAction( $projects,
 																		   $_REQUEST['tag'],
@@ -102,7 +102,7 @@ class Ansible__actions extends Stark__Controller__Base {
 																			 ? $_SERVER['REMOTE_USER']
 																			 : 'anonymous'
 																			 ),
-																		   $exit
+																		   $echo
 																		   );
 		###  Parse output for errors
 		if ( 0 /* are errors */ ) {
