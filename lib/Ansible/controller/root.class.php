@@ -53,7 +53,8 @@ class Ansible__root extends Stark__Controller__Base {
 
 		///  Otherwise we'd better redirect...
 		if ( ! empty( $return['redirect'] ) ) {
-			header('Location: '. $ctl->stage->url_prefix. $return['redirect']);
+			$redir = $return['redirect'][0] == '/' ? $return['redirect'] : $ctl->stage->url_prefix. $return['redirect'];
+			header('Location: '. $redir);
 			exit;
 		}
 		else return trigger_error('change_env.php must be called in AJAX mode, or passed a redirect parameter', E_USER_ERROR);
@@ -72,6 +73,11 @@ class Ansible__root extends Stark__Controller__Base {
 	}
 
 	public function project_page($ctl) {
+		###  Redirect if 
+		if ( $_REQUEST['create_roll_group'] ) {
+			return $this->create_roll_group_subpage($ctl);
+		}
+
 		if ( empty( $_REQUEST['p'] ) )
 			$ctl->redirect('list.php');
 		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
@@ -258,7 +264,7 @@ DELAY
 ));
 
 		        ###  Actions
-		        $file_line['actions'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
+		        $file_line['actions'] = delayed_load_span(array($file,$project,$projects), create_function('$file,$project,$projects',now_doc('DELAY')/*
 		            global $stage;
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
@@ -273,8 +279,8 @@ DELAY
 		
 		            $actions = '<i>n/a</i>';
 		            if ( $c_by_rev && $target_rev ) {
-		                $actions = ( "<a         href=\"actions/part_log.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."\">Log</a>"
-		                             . "&nbsp;<a     href=\"actions/diff.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."\">Diff</a>"
+		                $actions = ( "<a         href=\"actions/part_log.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."&". $stage->get_projects_url($projects). "\">Log</a>"
+		                             . "&nbsp;<a     href=\"actions/diff.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."&". $stage->get_projects_url($projects). "\">Diff</a>"
 		                             );
 		            }
 		
@@ -289,7 +295,7 @@ DELAY
 				foreach ( $ctl->stage->get_projects() as $pname ) {
 					if ( empty( $pname ) || $pname == $project->project_name ) continue;
 
-					$other_project = new Ansible__Project( $pname, $ctl->stage, false );
+					$other_project = new Ansible__ProjectProxy( $pname, $ctl->stage, false );
 					if ( ! in_array( $other_project->get_group(), array( '00_none','01_staging','03_testing_done','04_prod_rollout_prep' ) ) )
 						continue;
 
@@ -320,6 +326,47 @@ DELAY
 					  'locally_modified'   => $locally_modified,
 					  'project_url_params' => $ctl->stage->get_projects_url($projects),
 					 );
+	}
+
+	public function create_roll_group_subpage($ctl) {
+		if ( empty( $_REQUEST['p'] ) )
+			$ctl->redirect('list.php');
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+
+		$phase = null;
+		foreach( $projects as $project ) {
+			if ( $project->proxy_mode != 'project' ) 
+				return trigger_error("You cannot nest groups.", E_USER_ERROR);
+			if ( $phase === null ) $phase = $project->get_group();
+			else if ( $phase != $project->get_group() ) 
+				return trigger_error("All the Projects must be on the same Phase or Step", E_USER_ERROR);
+		}
+
+		if ( count($projects) <= 0 )
+			return trigger_error("You must choose at least one project to make a group", E_USER_ERROR);
+		$group_name = $_REQUEST['group_name'];
+		if ( is_array( $group_name ) ) {
+			foreach ( $group_name as $x ) {
+				if ( preg_match('/^[a-z0-9\-\_\(\)\t \:]+$/i', $x) ) {
+					$group_name = $x;
+					break;
+				}
+			}
+		}
+		if ( ! preg_match('/^[a-z0-9\-\_\(\)\t \:]+$/i', $group_name) )
+			return trigger_error("Bad Group Name", E_USER_ERROR);
+
+		require_once(dirname(dirname(__FILE__)) .'/model/RollGroup.class.php');
+		$group = new Ansible__RollGroup();
+		$group->create(array( 'creator'    => $_SERVER['REMOTE_USER'],
+							  'group_name' => $group_name,
+							  'rollout_stage' => $phase,
+							  ));
+		foreach( $projects as $project ) {
+			$project->proxy_obj->set_and_save(array('rlgp_id' => $group->rlgp_id));
+		}
+		
+		$ctl->redirect('list.php');
 	}
 
 	public function read_previous_command( $ctl ) {

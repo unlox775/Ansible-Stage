@@ -28,15 +28,15 @@
 				<?php foreach ( $view->projects[ $group ] as $project ) { ?>
 					<tr>
 						<td>
-							<input type="checkbox" name="p[]" value="<?php echo htmlentities( $project['name'] ) ?>"/>
+							<input type="checkbox" name="p[]" value="<?php echo htmlentities( $project['project_name'] ) ?>"/>
 						</td>
 						<td class="project-name-column" title="<?php echo $project['name'] ?>">
 							<?php echo ( $view->category == 'archived'
 							  			 ? $project['name']
-							  			 : "<a href=\"project.php?p=". urlencode($project['name']) ."\">". $project['name'] ."</a>"
+							  			 : "<a href=\"project.php?p=". urlencode($project['project_name']) ."\">". $project['name'] ."</a>"
 							) ?>
 						</td>
-						<td align="center" class="hide-on-phones"><?= $project['creator'] ?></td>
+						<td align="center" class="hide-on-phones"><?= $project['project']->get_creator() ?></td>
 						<td align="center" class="hide-on-phones"><?= $project['mod_time_display'] ?></td>
 						<td align="center"><?= $project['aff_file_count'] ?></td>
 						<!-- 
@@ -44,16 +44,38 @@
 						-->
 						<td>
 							<?= ( $view->category == 'archived'
-							      ? "<a href=\"actions/unarchive_project.php?p=". urlencode($project['name']) ."\">Un-Archive</a>"
-								  : "<a href=\"actions/archive_project.php?p=". urlencode($project['name']) ."\">Archive</a>"
+							      ? "<a href=\"actions/unarchive_project.php?p=". urlencode($project['project_name']) ."\">Un-Archive</a>"
+								  : "<a href=\"actions/archive_project.php?p=". urlencode($project['project_name']) ."\">Archive</a>"
 								 )
 							?>
 						</td>
 					</tr>
+					<?php if ( $project['project']->proxy_mode == 'group' ) { ?>
+						<?php foreach ( $project['project']->proxy_obj->projects as $sub_project ) { ?>
+							<tr>
+								<td style="padding-left: 66px" colspan=5 class="project-name-column" title="<?php echo $sub_project->proxy()->project_name ?>">
+									<?php echo ( $view->category == 'archived'
+									  ? $sub_project->proxy()->project_name
+									  			 : "<a href=\"project.php?p=". urlencode($sub_project->proxy()->project_name) ."\">". $sub_project->proxy()->project_name ."</a>"
+									) ?>
+								</td>
+								<td>
+									<a style="white-space: nowrap" href="actions/remove_from_group.php?p=<?php echo urlencode($sub_project->proxy()->project_name) ?>">Un-Group</a>
+								</td>
+							</tr>
+						<?php } ?>
+					<?php } ?>
 				<?php } ?>
 			<tbody>
 		</table>
-		<input type="submit" value="View Checked Projects"/>
+		<div class="button-bar right">
+			<input type="text" name="group_name[]" value="" placeholder="Group Name"/>
+			<input type="submit" name="create_roll_group" value="Create Roll Group"/>
+		</div>
+		<div class="button-bar left">
+			<input type="submit" name="view_checked" value="View Checked Projects"/>
+		</div>
+		<div class="clear"></div>
 	</div>
 <?php } ?>
 </form>

@@ -38,7 +38,7 @@ class Ansible__actions extends Stark__Controller__Base {
 		if ( ! empty( $_REQUEST['p'] ) ) {
 			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-\.]/', $_REQUEST['p']) ) 
 				return trigger_error("Please don't hack...", E_USER_ERROR);
-			$project = new Ansible__Project( $_REQUEST['p'], $ctl->stage );
+			$project = new Ansible__ProjectProxy( $_REQUEST['p'], $ctl->stage );
 			if ( $project->exists() && ! $project->archived() ) {
 				$user = ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous';
 				$project->archive($user);
@@ -50,15 +50,28 @@ class Ansible__actions extends Stark__Controller__Base {
 
 	public function unarchive_project_page ($ctl) {
 		if ( ! empty( $_REQUEST['p'] ) ) {
-			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-]/', $_REQUEST['p']) ) 
+			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-\.]/', $_REQUEST['p']) ) 
 				return trigger_error("Please don't hack...", E_USER_ERROR);
-			$project = new Ansible__Project( $_REQUEST['p'], $ctl->stage, true );
+			$project = new Ansible__ProjectProxy( $_REQUEST['p'], $ctl->stage, true );
 			if ( $project->exists() && $project->archived() ) {
 				$user = ( ! empty( $_SERVER['REMOTE_USER'] ) ) ? $_SERVER['REMOTE_USER'] : 'anonymous';
 				$project->unarchive($user);
 			}
 		}
 		$ctl->redirect('../list.php?cat=archived');
+		exit;
+	}
+
+	public function remove_from_group_page ($ctl) {
+		if ( ! empty( $_REQUEST['p'] ) ) {
+			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-\.]/', $_REQUEST['p']) ) 
+				return trigger_error("Please don't hack...", E_USER_ERROR);
+			$project = new Ansible__ProjectProxy( $_REQUEST['p'], $ctl->stage, false );
+			if ( $project->proxy_mode == 'project' ) {
+				$project->proxy_obj->set_and_save(array('rlgp_id' => null));
+			}
+		}
+		$ctl->redirect('../list.php');
 		exit;
 	}
 
@@ -182,6 +195,11 @@ class Ansible__actions extends Stark__Controller__Base {
 	}
 
 	public function full_log_page($ctl) {
+		###  Get Projects
+		if ( empty( $_REQUEST['p'] ) )
+			$ctl->redirect('list.php');
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+
 		$file     = $_REQUEST['file'];
 		if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) 
 			return trigger_error("Please don't hack...", E_USER_ERROR);
@@ -191,29 +209,63 @@ class Ansible__actions extends Stark__Controller__Base {
 
 		###  Get the partial log
 		$clog = $ctl->stage->repo()->get_log($file);
-		$this->full_log_page_tmp = array($file, undef, '<xmp>', "</xmp>");
+		$this->full_log_page_tmp = array($file, undef, '<xmp>', "</xmp>", $projects);
 		$this->ctl = $ctl;
 		$clog = preg_replace_callback('/(\n(r([\d]+)[^\n]+\n))/s',array( $this, 'full_log_page_preplace_callback'),$clog);
 
 		return( array( 'clog' => $clog,
 					   'file' => $file,
 					   'command_name' => $ctl->stage->repo()->command_name,
+					   'projects'           => $projects,
+					   'project_url_params' => $ctl->stage->get_projects_url($projects),
 					   ) );
 	}
 	function full_log_page_preplace_callback($m) {
-		list( $file, $project_name, $s_esc, $e_esc ) = $this->full_log_page_tmp;
-		return $this->revision_link($file, $m[3], $m[2], $project_name, $s_esc, $e_esc, $m[1]);
+		list( $file, $project_name, $s_esc, $e_esc, $projects ) = $this->full_log_page_tmp;
+		return $this->revision_link($file, $m[3], $m[2], $project_name, $s_esc, $e_esc, $m[1], $projects);
 	}
 
-	function revision_link( $file, $rev, $str, $project_name, $s_esc, $e_esc, $whole_match) {
+	function revision_link( $file, $rev, $str, $project_name, $s_esc, $e_esc, $whole_match, $projects = array()) {
 		list($first_rev, $err) = $this->ctl->stage->repo()->get_first_rev($file);
 		
 		if ( $first_rev && $rev == $first_rev ) return $whole_match;
 		if ( empty($s_esc) ) $s_esc = '';
 		if ( empty($e_esc) ) $e_esc = '';
 		
-		$tag = "$e_esc<a href=\"". $this->ctl->stage->url_prefix ."/actions/diff.php?from_rev=". $this->ctl->stage->repo()->get_prev_rev($file, $rev) ."&to_rev=". $rev ."&file=". urlencode($file) ."\">$s_esc";
-		return $tag . $str ."$e_esc</a>$s_esc";
+		///  Determine if this is the target revision
+		$is_target = false;
+		foreach ( $projects as $project ) {
+			list( $target_rev, $used_file_tags ) = $project->determine_target_rev($file);
+			if ( $used_file_tags && $rev == $target_rev ) {
+				$is_target = true;
+				break;
+			}
+		}
+
+		$tag = ( "$e_esc"
+				 . '<div style="position: relative">'
+				 .     "<a href=\"". ( $this->ctl->stage->url_prefix ."/actions/diff.php"
+				      				   . "?from_rev=". $this->ctl->stage->repo()->get_prev_rev($file, $rev)
+				      				   . "&to_rev=". $rev
+				      				   . "&file=". urlencode($file)
+				      				   . "&". $GLOBALS['controller']->stage->get_projects_url( $projects )
+				      				   )."\">"
+				 .         "$s_esc". $str ."$e_esc"
+				 .     "</a>"
+				 .     '<div style="width: 50px; height: 30px; position: absolute; left: -40px; top: 0px;">'
+				 .     '<a href="'. ( 'set_file_tag.php' 
+				       				  . "?file=". urlencode($file)
+				       				  . "&rev=". $rev
+				       				  . "&". $GLOBALS['controller']->stage->get_projects_url( $projects )
+				       				  . '&redir='. urlencode( $_SERVER['REQUEST_URI'] )
+				       				  ).'"'
+				 .         'style="color: '. ($is_target ? 'orange' : 'gray') .'"'
+				 .         '>[--&gt;]</a>'
+				 .     '</div>'
+				 . '</div>'
+				 ."$s_esc"
+				 );
+		return $tag;
 	}
 	
 	function diff_page($ctl) {
@@ -245,6 +297,11 @@ class Ansible__actions extends Stark__Controller__Base {
 	}
 
 	function part_log_page($ctl) {
+		###  Get Projects
+		if ( empty( $_REQUEST['p'] ) )
+			$ctl->redirect('list.php');
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+
 		$file     = $_REQUEST['file'];
 		$from_rev = $_REQUEST['from_rev'];
 		$to_rev   = $_REQUEST['to_rev'];
@@ -275,7 +332,7 @@ class Ansible__actions extends Stark__Controller__Base {
 		###  Turn the revision labels into links
 		$this->ctl = $ctl;
 		foreach ( array_keys( $entries ) as $i ) {
-			$this->part_log_page_tmp = array($file, $entries[$i][0], undef, '<xmp>', '</xmp>');
+			$this->part_log_page_tmp = array($file, $entries[$i][0], undef, '<xmp>', '</xmp>', $projects);
 			$entries[$i][1] = preg_replace_callback('/(\n(r([\d]+)[^\n]+\n))/', array($this, 'part_log_page_preplace_callback'), $entries[$i][1]);
 		}
 
@@ -286,11 +343,13 @@ class Ansible__actions extends Stark__Controller__Base {
 					   'to_rev' => $to_rev,
 					   'file' => $file,
 					   'command_name' => $ctl->stage->repo()->command_name,
+					   'projects'           => $projects,
+					   'project_url_params' => $ctl->stage->get_projects_url($projects),
 					   ) );
 	}
 	function part_log_page_preplace_callback($m) {
-		list( $file, $rev, $project_name, $s_esc, $e_esc ) = $this->part_log_page_tmp;
-		return $this->revision_link($file, $rev, $m[2], $project_name, $s_esc, $e_esc, $m[1]);
+		list( $file, $rev, $project_name, $s_esc, $e_esc, $projects ) = $this->part_log_page_tmp;
+		return $this->revision_link($file, $rev, $m[2], $project_name, $s_esc, $e_esc, $m[1], $projects);
 	}
 
 
@@ -336,4 +395,22 @@ class Ansible__actions extends Stark__Controller__Base {
 		exit;
 	}
 
+	public function set_file_tag_page ($ctl) {
+		if ( preg_match('/[^\w\.]/', $_REQUEST['rev'], $m) ) return trigger_error("Please don't hack...", E_USER_ERROR);
+
+		###  Get Projects
+		if ( empty( $_REQUEST['p'] ) )
+			$ctl->redirect('../list.php');
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+
+		foreach ( $projects as $project ) {
+			foreach ( $project->get_affected_files() as $proj_file ) {
+				if ( $proj_file == $_REQUEST['file'] ) {
+					$project->set_file_tag($proj_file, $_REQUEST['rev']);
+				}
+			}
+		}
+		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
+		exit;
+	}
 }

@@ -21,9 +21,9 @@ class Ansible__RollPoint__Project extends Ansible__ORM__Local {
     public static function get_where($where = null, $limit_or_only_one = false, $order_by = null) { return parent::get_where($where, $limit_or_only_one, $order_by); }
 
 	public function project() {
-		require_once(dirname(dirname(dirname(__FILE__))). '/Project.class.php');
+		require_once(dirname(dirname(dirname(__FILE__))). '/ProjectProxy.class.php');
 
-		$project = new Ansible__Project( $this->project, $GLOBALS['controller']->stage, false );
+		$project = new Ansible__ProjectProxy( $this->project, $GLOBALS['controller']->stage, false );
 		
 		return( $project->exists() ? $project : null );
 	}

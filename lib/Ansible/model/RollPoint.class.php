@@ -18,8 +18,8 @@ class Ansible__RollPoint extends Ansible__ORM__Local {
 #							   'columns'      => 'mentor_id',               # local cols to get the PKey for the new object (can be array if >1 col..)
 #							   ),
         'projects' => array( 'relationship'        => 'has_many',
-							 'include'             =>          'RollPoint/Project.class.php', # A file to require_once(), (should be in include_path)
-							 'class'               => 'Ansible__RollPoint__Project',          # The class name
+							 'include'             =>          'RollPoint/ProjectProxy.class.php', # A file to require_once(), (should be in include_path)
+							 'class'               => 'Ansible__RollPoint__ProjectProxy',          # The class name
 							 'foreign_table'       => 'rlpt_project',                		  # The table to SELECT FROM
 							 'foreign_key_columns' => 'rlpt_id',                     		  # The cols in the foreign table that correspond to Your PKey (can be array if >1 col..)
 							 'foreign_table_pkey'  => 'rlpp_id',                     		  # The primary key of that table                              (can be array if >1 col..)

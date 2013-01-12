@@ -207,7 +207,7 @@
 <?php foreach ($view->project_data as $pdata ) { ?>
 	
 	<h2>
-		Project: <?php echo $pdata['project']->project_name ?> [<?= substr($pdata['project']->get_group(), 0, 2) ?>]
+		Project: <?php echo $pdata['project']->get_display_name() ?> [<?= substr($pdata['project']->get_group(), 0, 2) ?>]
 		<a href="project.php?<?php echo $pdata['remove_project_url'] ?>">[X]</a>
 	</h2>
 
@@ -230,7 +230,7 @@
 		<tbody>
 	    	<?php foreach ( $pdata['files'] as $file ) { ?>
 				<tr>
-					<td><a href="actions/full_log.php?file=<?php echo urlencode($file['file']) ?>"><?php echo $file['file'] ?></a></td>
+					<td><a href="actions/full_log.php?file=<?php echo urlencode($file['file']) ?>&<?php echo $view->project_url_params ?>"><?php echo $file['file'] ?></a></td>
 					<td align=center><?php echo $file['cur_vers'] ?></td>
 					<td align=center><?php echo $file['target_vers'] ?></td>
 					<td align=center><?php echo $file['head_vers'] ?></td>

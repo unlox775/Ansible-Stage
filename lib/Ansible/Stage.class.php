@@ -464,7 +464,7 @@ class Ansible__Stage {
 		$params = array();
 		$project_codes = array();
 		foreach ( (array) $projects as $project ) {
-			$project_name = ( $project instanceof Ansible__Project ? $project->project_name : $project );
+			$project_name = ( $project instanceof Ansible__ProjectProxy ? $project->project_name : $project );
 			if ( $exclude && $exclude == $project_name ) continue;
 			$project_codes[] = $project_name;
 			$params[] = "p[]=". urlencode($project_name);
@@ -493,10 +493,10 @@ class Ansible__Stage {
 		return $projects;
 	}
 	public function get_projects_from_param($param) {
-		require_once($this->config('lib_path'). '/Ansible/Project.class.php');
+		require_once($this->config('lib_path'). '/Ansible/ProjectProxy.class.php');
 		$projects = array();
 		foreach ( $this->read_projects_param($param) as $p ) {
-			$project = new Ansible__Project( $p, $this );
+			$project = new Ansible__ProjectProxy( $p, $this );
 			if ( ! $project->exists() ) return trigger_error("Invalid project: ". $p, E_USER_ERROR);
 			$projects[] = $project;
 		}
@@ -504,14 +504,32 @@ class Ansible__Stage {
 	}
 
 	public function get_projects() {
+		$projects = array();
+
+		require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
+		$projects_in_groups = array();
+		foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
+			foreach ( $group->projects as $project ) {
+				$projects_in_groups[ $project->proxy()->project_name ] = true;
+			}
+			$projects[] = 'RollGroup|'. $group->rlgp_id;
+		}
+
+		///  Get the files from an ls
 		$tmp = func_get_args();
 		$project_base = $this->config('project_base');
 		$ignore_regex = $this->config('project_base_ignore_regexp');
 		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
-		return explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base | /bin/grep -E -v '^(archive|logs|$ignore_regex)\$'`);
+		foreach ( explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base | /bin/grep -E -v '^(archive|logs|$ignore_regex)\$'`) as $project_name ) {
+			if ( isset( $projects_in_groups[ $project_name ] ) ) continue;
+			$projects[] = $project_name;
+		}
+		return $projects;
 	}
 
 	public function get_archived_projects() {
+
+		///  Get the files from an ls
 		$tmp = func_get_args();
 		$project_base = $this->config('project_base');
 		$ignore_regex = $this->config('project_base_ignore_regexp');
@@ -520,7 +538,7 @@ class Ansible__Stage {
 	}
 
 	public function get_projects_by_group($category = 'active') {
-		require_once($this->config('lib_path'). '/Ansible/Project.class.php');
+		require_once($this->config('lib_path'). '/Ansible/ProjectProxy.class.php');
 
 		###  Project Groups
 		$groups = array( '00_none'              => 'New Projects - In Development',
@@ -536,14 +554,16 @@ class Ansible__Stage {
 		foreach ( $category_list as $project_name ) {
 			if ( empty( $project_name ) ) continue;
 
-			$project = new Ansible__Project( $project_name, $this, ($category == 'archived') );
+			$project = new Ansible__ProjectProxy( $project_name, $this, ($category == 'archived') );
 
 			###  Get more info from ls
-			$ls = ( is_dir($SYSTEM_PROJECT_BASE)) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
+			$ls = ( ! is_dir($this->config('project_base')) ) ? (preg_split('/\s+/', $project->get_ls()) ) : array();
 			#        $stat = (is_dir($SYSTEM_PROJECT_BASE)) ? ($project->get_stat()) : ();
 			$stat = $project->get_stat();
 
-			$project_info = array( 'name'                => $project_name,
+			$project_info = array( 'name'                => $project->get_display_name(),
+								   'project_name'        => $project_name,
+								   'project'             => $project,
 								   'creator'             => ($ls[2] || '-'),
 								   'group'               => ($ls[3] || '-'),
 								   'mod_time'            => ($stat ? $stat[9] : 0),

@@ -4,7 +4,7 @@
 /// Stark MVC Config
 $config->CONTROLLER_PRELOAD_LIBS
 = array($config->lib_path. '/Ansible/Repo.class.php',
-		$config->lib_path. '/Ansible/Project.class.php',
+		$config->lib_path. '/Ansible/ProjectProxy.class.php',
         $config->lib_path. '/delayed_load.inc.php',
         $config->lib_path. '/File_NFSLock.class.php'
 		);

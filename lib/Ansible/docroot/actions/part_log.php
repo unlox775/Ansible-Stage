@@ -2,8 +2,14 @@
 <?php $view->scoped_include( $_SERVER['DOCUMENT_ROOT'] . $ctl->SKIN_BASE .'/inc/header.inc.php' ); ?>
 
 <h2><?php echo $view->command_name ?> log entries of <?php echo $view->file ?> from -r <?php echo $view->from_rev ?> to -r <?php echo $view->to_rev ?></h2>
-<p><a href="javascript:history.back()">Go Back</a></p>
+<p><a href="../project.php?<?php echo $view->project_url_params ?>">Go Back</a></p>
 <hr>
+
+<div style="position: relative; left: -40px">
+	<a href="set_file_tag.php?file=<?php echo urlencode($view->file) ?>&rev=&<?php echo $view->project_url_params ?>&redir=<?php echo urlencode( $_SERVER['REQUEST_URI'] ) ?>"
+	style="color: black"
+	>[ No Target ]</a>
+</div>
 
 <xmp><?php echo "\n". $view->clog ."\n" ?></xmp>
 
