@@ -11,7 +11,8 @@
 							 | <a href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=HEAD')"		>HEAD</a>
 							 | <a href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST')">Rollout Tag</a>
 							 | <a href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=PROD_SAFE')">Rollback Tag</a>
-				<br>Tag as:	   <a href="javascript: confirmAction('TAG',   'actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST')"	  >Rollout Tag</a>
+				<br>Tag as:	   <a href="javascript: confirmAction('TAG',   'actions/set_all_project_targets.php?<?php echo $view->project_url_params ?>&redir=<?= urlencode( $stage->safe_self_url()) ?>')"	  >Target</a>
+							 | <a href="javascript: confirmAction('TAG',   'actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST')"	  >Rollout Tag</a>
 							 | <a href="javascript: confirmAction('TAG',   'actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_SAFE')"	  >Rollback Tag</a>
 			<?php } ?>
 		</td>

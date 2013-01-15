@@ -262,3 +262,14 @@ body.mini #main_header > .inner {
 	overflow: hidden;
 	text-align: left;
 }
+
+/* --- Modal Content Styling --- */
+#modal_container {
+	padding: 15px;
+}
+
+
+#propose-merge textarea {
+	width: 100%;
+	height: 300px;
+}

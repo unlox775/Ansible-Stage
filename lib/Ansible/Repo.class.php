@@ -56,11 +56,13 @@ class Ansible__Repo {
 			$rev = null;
 			foreach ( $projects as $project ) {
 				$tags = $project->get_file_tags();
-				if ( empty( $rev )
-					 ///  OR if this tag is "later" than the stored one
-					 || ( empty($tags[$file])   && $rev != 'HEAD' )
+				if ( //////  OR if this tag is "later" than the stored one
+					 ///  If no file tag for this project, and cur iter is set to non-Head rev, set to latest -> HEAD
+					 ( empty($tags[$file])   && $rev != 'HEAD' )
+					 ///  If the file has a tag, and it is greater (later in time) than the cur iter => File rev
+					 ///    Note: if cur iter is already HEAD, can't beat it, so skip
 					 || ( ! empty($tags[$file]) && $rev != 'HEAD' && $this->rev_greater_than( $tags[$file], $rev, $file ) )
-					 ) $rev = isset( $rev ) ? $rev : 'HEAD';
+					 ) $rev = isset( $tags[$file] ) ? $tags[$file] : 'HEAD';
 			}
 			return ( is_null( $rev ) ? 'HEAD' : $rev );
 		}

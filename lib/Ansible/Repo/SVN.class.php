@@ -105,6 +105,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 			$point_roll->set_and_save(array('cmd' => $cmd,'cmd_output' => $command_output));
 
         if ( empty( $command_output ) ) $command_output = '</xmp><i>No output</i>';
+#		bug(join(' ; ',$complete_cmd), $command_output);
+#		exit;
 
         return( array(join(' ; ',$complete_cmd), $command_output) );
     }
@@ -270,7 +272,10 @@ class Ansible__Repo__SVN extends Ansible__Repo {
                 ###  Use HEAD:1 so we aren't limited to don't just get the revs up to the file's current rev
                 $limit_arg = ! empty( $limit ) ? ' --limit '. $limit : '';
 				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
-                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
+				$svn_path = $this->get_repository_root();
+#				bug("${cmd_prefix}svn log $limit_arg -r HEAD:1 \"$svn_path/$file\" 2>&1 | cat"); exit;
+                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$svn_path/$file" 2>&1 | cat`;
+#                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
                 END_TIMER('REPO_CMD(log)', PROJECT_PROJECT_TIMERS);
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 

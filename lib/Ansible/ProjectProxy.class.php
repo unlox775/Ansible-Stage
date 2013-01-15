@@ -304,8 +304,6 @@ class Ansible__ProjectProxy {
     }
 
     public function set_file_tag($file, $rev) {
-		$this->file_tags_cache = array();
-
         $archived = $this->archived ? 'archive/' : '';
         $file_path = $this->stage->config('project_base') ."/$archived$this->project_name/file_tags.csv";
 
@@ -339,6 +337,7 @@ class Ansible__ProjectProxy {
 		}
 		###  Clear Cache
 		if ( ! empty( $this->file_tags_cache ) ) $this->file_tags_cache = null;
+		unset( self::$get_file_cache[ $file_path ] );
         return $this->file_tags_cache;
     }
 

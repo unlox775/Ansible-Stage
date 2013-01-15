@@ -217,11 +217,9 @@ DELAY
 		            if ( empty($error) ) {
 		                ###  Set Target version if it's there
 		                list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-		                if ( $used_file_tags ) {
-		                    if ( $target_rev != $cur_rev ) { $target_vers = "<b><font color=red>". $target_rev ."</font></b>"; }
-		                    else {                           $target_vers = "<b>".                 $target_rev        ."</b>"; }
-		                }
-		                else { $target_vers = '-&gt;'; }
+						$rev_display = $used_file_tags ? '['. $target_rev .']' : $target_rev;
+						if ( $target_rev != $cur_rev ) { $target_vers = "<b><font color=red>".   $rev_display ."</font></b>"; }
+						else {                           $target_vers = "<b><font color=green>". $rev_display ."</font></b>"; }
 		            }
 		
 		            return $target_vers;
@@ -275,12 +273,28 @@ DELAY
 		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
 		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
 		            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-		            $c_by_rev = $stage->onLive() ? $cur_rev : $prod_test_rev;
+		            $c_by_rev = $stage->onLive() ? $cur_rev : ( $prod_test_rev ?: 1);
 		
 		            $actions = '<i>n/a</i>';
+					bug($file, $stage->env(), $stage->onLive(), $target_rev, $c_by_rev, $prod_test_rev, $cur_rev);
 		            if ( $c_by_rev && $target_rev ) {
-		                $actions = ( "<a         href=\"actions/part_log.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."&". $stage->get_projects_url($projects). "\">Log</a>"
-		                             . "&nbsp;<a     href=\"actions/diff.php?from_rev=$c_by_rev&to_rev=$target_rev&file=". urlencode($file) ."&". $stage->get_projects_url($projects). "\">Diff</a>"
+		                $actions = ( '<a class="log-modal-link"'
+						             . ' href="actions/part_log.php'
+									 .     '?' . http_build_query(array( 'm'        => 1,
+									                                     'from_rev' => $c_by_rev,
+									       								 'to_rev'   => $target_rev,
+									       								 'file'     => $file,
+									       								 ))
+									 .     '&'. $stage->get_projects_url($projects)
+									 .     '">Log</a>'
+		                             . '&nbsp;<a     href="actions/diff.php'
+									 .     '?' . http_build_query(array( 'm'        => 1,
+									                                     'from_rev' => $c_by_rev,
+									       								 'to_rev'   => $target_rev,
+									       								 'file'     => $file,
+									       								 ))
+									 .     '&'. $stage->get_projects_url($projects)
+									 .     '">Diff</a>'
 		                             );
 		            }
 		

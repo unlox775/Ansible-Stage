@@ -228,7 +228,7 @@ class Ansible__actions extends Stark__Controller__Base {
 	function revision_link( $file, $rev, $str, $project_name, $s_esc, $e_esc, $whole_match, $projects = array()) {
 		list($first_rev, $err) = $this->ctl->stage->repo()->get_first_rev($file);
 		
-		if ( $first_rev && $rev == $first_rev ) return $whole_match;
+#		if ( $first_rev && $rev == $first_rev ) return $whole_match;
 		if ( empty($s_esc) ) $s_esc = '';
 		if ( empty($e_esc) ) $e_esc = '';
 		
@@ -245,14 +245,18 @@ class Ansible__actions extends Stark__Controller__Base {
 		$tag = ( "$e_esc"
 				 . '<div style="position: relative">'
 				 .     "<a href=\"". ( $this->ctl->stage->url_prefix ."/actions/diff.php"
-				      				   . "?from_rev=". $this->ctl->stage->repo()->get_prev_rev($file, $rev)
+				      				   . "?from_rev=". ( $this->ctl->stage->repo()->get_prev_rev($file, $rev) ?: 1 )
 				      				   . "&to_rev=". $rev
 				      				   . "&file=". urlencode($file)
 				      				   . "&". $GLOBALS['controller']->stage->get_projects_url( $projects )
 				      				   )."\">"
 				 .         "$s_esc". $str ."$e_esc"
 				 .     "</a>"
-				 .     '<div style="width: 50px; height: 30px; position: absolute; left: -40px; top: 0px;">'
+				 .     '<div data-prev-rev="'. ( $this->ctl->stage->repo()->get_prev_rev($file, $rev) ?: 1 ) .'"'
+				 .         ' data-rev="'. $rev .'"'
+				 .         ' class="target-link"'
+				 .         ' style="width: 50px; height: 30px; position: absolute; left: -40px; top: 0px;"'
+				 .         '>'
 				 .     '<a href="'. ( 'set_file_tag.php' 
 				       				  . "?file=". urlencode($file)
 				       				  . "&rev=". $rev
@@ -288,10 +292,10 @@ class Ansible__actions extends Stark__Controller__Base {
 		if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
 
 
-		return( array( 'cdiff' => $cdiff,
+		return( array( 'cdiff'    => $cdiff,
 					   'from_rev' => $from_rev,
-					   'to_rev' => $to_rev,
-					   'file' => $file,
+					   'to_rev'   => $to_rev,
+					   'file'     => $file,
 					   'command_name' => $ctl->stage->repo()->command_name,
 					   ) );
 	}
@@ -305,6 +309,8 @@ class Ansible__actions extends Stark__Controller__Base {
 		$file     = $_REQUEST['file'];
 		$from_rev = $_REQUEST['from_rev'];
 		$to_rev   = $_REQUEST['to_rev'];
+#		bug( $ctl->stage->repo()->get_head_rev($file) );
+		list( $to_rev )   = $ctl->stage->repo()->get_head_rev($file);
 		if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) || preg_match('/[^\d\.]+/', $from_rev, $m) || preg_match('/[^\d\.]+/', $to_rev, $m) ) 
 			return trigger_error("Please don't hack...", E_USER_ERROR);
 
@@ -408,6 +414,22 @@ class Ansible__actions extends Stark__Controller__Base {
 				if ( $proj_file == $_REQUEST['file'] ) {
 					$project->set_file_tag($proj_file, $_REQUEST['rev']);
 				}
+			}
+		}
+		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
+		exit;
+	}
+
+	public function set_all_project_targets_page($ctl) {
+		###  Get Projects
+		if ( empty( $_REQUEST['p'] ) )
+			$ctl->redirect('../list.php');
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+
+		foreach ( $projects as $project ) {
+			foreach ( $project->get_affected_files() as $proj_file ) {
+				list( $cur_rev ) = $ctl->stage->repo()->get_current_rev($proj_file);
+				$project->set_file_tag($proj_file, $cur_rev);
 			}
 		}
 		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
