@@ -107,6 +107,37 @@ class Ansible__Stage {
 		return $this->__repo;
 	}
 
+	public function live_repo() {
+		###  Cache
+		if ( empty( $this->__live_repo ) ) {
+			###  Don't re-clone Prod
+			if ( $this->onLive() ) {
+				return( $this->__live_repo = $this->repo() );
+			}
+			require_once( $this->config('repo_file') );
+			
+			$area = null;  $env = null;
+			foreach ( array_keys($this->staging_areas) as $test_env ) {
+				$area = $this->env( $test_env );
+				if ( $area->role == 'live' ) {
+					$env = $test_env;
+					break;
+				}
+			}
+
+			if ( ! $env ) return trigger_error("ERROR: no staging areas have the role of 'live'", E_USER_ERROR);
+
+			$repo_class = $this->config('repo_class');
+			$this->__live_repo = new $repo_class ();
+			$this->__live_repo->stage = clone($this);
+			$this->__live_repo->stage->set_env( $env );
+
+			###  Make sure the database is connected
+			$this->dbh();
+		}
+		return $this->__live_repo;
+	}
+
 	public function dbh() {
 		###  Cache
 		if ( empty( $this->__dbh ) ) {
@@ -299,6 +330,12 @@ class Ansible__Stage {
 		$return = ( isset( $this->staging_areas[ $env ] ) ) ? (object) $this->staging_areas[ $env ] : (object) array();
 		/* HOOK */$__x = $this->extend->x('env', 10, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		return $return;
+	}
+	public function set_env($env) {
+		/* HOOK */$__x = $this->extend->x('set_env', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
+		$this->env = $env;
+		/* HOOK */$__x = $this->extend->x('set_env', 10, $this); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
+		return $this->env;
 	}
 	public function sandbox_areas() {
 		$areas = array();

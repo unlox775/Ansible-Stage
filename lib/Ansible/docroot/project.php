@@ -202,7 +202,7 @@
 */ ?>
 
 <!-- /////  Actions  ///// -->
-<?php $view->scoped_include( './project_actions.inc.php', array('project','project_url_params') ) ?>
+<?php $view->scoped_include( './project_actions.inc.php', array('projects','project_url_params') ) ?>
 
 <?php foreach ($view->project_data as $pdata ) { ?>
 	
@@ -220,8 +220,8 @@
 				<td align=center><b>Current Status</b></td>
 				<td align=center><b>Target</b></td>
 				<td align=center><b>HEAD</b></td>
-				<td align=center><b>Rollout Tag</b></td>
-				<td align=center><b>Rollback Tag</b></td>
+				<td align=center><b>Production</b></td>
+				<!--td align=center><b>Rollback Tag</b></td-->
 				<td align=center><b>Changes By</b></td>
 				<td align=left><b>Action</b></td>
 			</tr>
@@ -234,8 +234,8 @@
 					<td align=center><?php echo $file['cur_vers'] ?></td>
 					<td align=center><?php echo $file['target_vers'] ?></td>
 					<td align=center><?php echo $file['head_vers'] ?></td>
-					<td align=center><?php echo $file['prod_test_vers'] ?></td>
-					<td align=center><?php echo $file['prod_safe_vers'] ?></td>
+					<td align=center><?php echo $file['live_vers'] ?></td>
+					<!--td align=center><?php echo $file['prod_safe_vers'] ?></td-->
 					<td align=center><?php echo $file['changes_by'] ?></td>
 					<td align=left  ><?php echo $file['actions'] ?></td>
 				</tr>

@@ -92,7 +92,7 @@ class Ansible__actions extends Stark__Controller__Base {
 
 		###  Target a specific env if requested
 		if ( $_REQUEST['env'] && isset( $ctl->stage->staging_areas[ $_REQUEST['env'] ] ) ) {
-			$ctl->stage->env = $_REQUEST['env'];
+			$ctl->stage->set_env( $_REQUEST['env'] );
 		}
 
 		###  Set Group..
@@ -169,7 +169,7 @@ class Ansible__actions extends Stark__Controller__Base {
 
 		###  Target a specific env if requested
 		if ( $_REQUEST['env'] && isset( $ctl->stage->staging_areas[ $_REQUEST['env'] ] ) ) {
-			$ctl->stage->env = $_REQUEST['env'];
+			$ctl->stage->set_env( $_REQUEST['env'] );
 		}
 
 		###  Make other processes not lock and wait for session
@@ -279,6 +279,11 @@ class Ansible__actions extends Stark__Controller__Base {
 		if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) || preg_match('/[^\d\.]+/', $from_rev, $m) || ! preg_match('/^([\d\.]+|local)$/', $to_rev, $m) ) 
 			return trigger_error("Please don't hack...", E_USER_ERROR);
 
+		###  Target a specific env if requested
+		if ( $_REQUEST['env'] && isset( $ctl->stage->staging_areas[ $_REQUEST['env'] ] ) ) {
+			$ctl->stage->set_env( $_REQUEST['env'] );
+		}
+
 		###  Make other processes not lock and wait for session
 		session_write_close();
 
@@ -288,7 +293,8 @@ class Ansible__actions extends Stark__Controller__Base {
 		$revision_arg = ($to_rev == 'local') ? "-r$from_rev" : "-r$from_rev:$to_rev";
 		$cmd_prefix = $ctl->stage->config('repo_cmd_prefix');
 		$cmd_name = $ctl->stage->repo()->command_name;
-		$cdiff = `${cmd_prefix}$cmd_name diff $revision_arg "$file" 2>&1 | cat`;
+		$cdiff = `${cmd_prefix}$cmd_name diff -x "-uw --ignore-eol-style" $revision_arg "$file" 2>&1 | cat`;
+#		$cdiff = `${cmd_prefix}$cmd_name diff $revision_arg "$file" 2>&1 | cat`;
 		if ( PROJECT_PROJECT_TIMERS ) END_TIMER('REPO_CMD');
 
 
@@ -432,6 +438,34 @@ class Ansible__actions extends Stark__Controller__Base {
 				$project->set_file_tag($proj_file, $cur_rev);
 			}
 		}
+		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
+		exit;
+	}
+
+	public function add_projects_to_group_page($ctl) {
+		if ( empty( $_REQUEST['p'] ) )
+			$ctl->redirect('list.php');
+		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+
+		$add_to_group = new Ansible__ProjectProxy($_REQUEST['group_name'], $ctl->stage);
+		if ( ! $add_to_group->exists() || $add_to_group->proxy_mode != 'group' )
+			return trigger_error("Invalid Group", E_USER_ERROR);
+
+		foreach( $projects as $project ) {
+			if ( $project->proxy_mode != 'project' ) 
+				return trigger_error("You cannot nest groups.", E_USER_ERROR);
+######  Don't require to update to staging which may hose file tags
+###  			else if ( $add_to_group->get_group() != $project->get_group() ) 
+###  				return trigger_error("One or more of your projects is not on the same Phase as the Group", E_USER_ERROR);
+		}
+
+		if ( count($projects) <= 0 )
+			return trigger_error("You must choose at least one project to add to the group", E_USER_ERROR);
+
+		foreach( $projects as $project ) {
+			$project->proxy_obj->set_and_save(array('rlgp_id' => $add_to_group->proxy_obj->rlgp_id));
+		}
+		
 		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
 		exit;
 	}

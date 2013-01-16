@@ -1,4 +1,5 @@
 <!-- /////	Actions ///// -->
+
 <table width="100%" border=0 cellspacing=0 cellpadding=0>
 	<tr>
 		<td align="left" valign="top">
@@ -15,10 +16,40 @@
 							 | <a href="javascript: confirmAction('TAG',   'actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST')"	  >Rollout Tag</a>
 							 | <a href="javascript: confirmAction('TAG',   'actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_SAFE')"	  >Rollback Tag</a>
 			<?php } ?>
+<br/><br/>
+			<p>
+				<a href="javascript:void(null)" onclick="hiliteFilesWithNewRevs()">[Hilight Files with New Revisions]</a>
+			</p>
+			<form method="GET" action="actions/add_projects_to_group.php?<?php echo $view->project_url_params ?>">
+			<input type="hidden" name="redir" value="<?php echo $stage->safe_self_url() ?>"/>
+			<?php $proj_params = array(); parse_str($view->project_url_params, $proj_params); ?>
+			<?php foreach ( (array) $proj_params['p'] as $proj_name ) { ?>
+				<input type="hidden" name="p[]" value="<?php echo $proj_name ?>"/>
+			<?php } ?>
+			<p>
+				Add Project(s) to Group:
+				<?php 
+				  $groups = array();
+				  foreach ( $stage->get_projects() as $project_item ) {
+					  $test_project = new Ansible__ProjectProxy($project_item, $stage);
+					  if ( $test_project->proxy_mode == 'group' ) {
+						  $groups[] = $test_project;
+					  }
+				  }
+				?>
+				<select name="group_name">
+					<?php foreach ( $groups as $g_proj ) { ?>
+						<option value="<?php echo $g_proj->project_name ?>"><?php echo $g_proj->get_display_name() ?></option>
+					<?php } ?>
+				</select>
+				<input type="submit" value="Go"/>
+			</p>
+			</form>
 		</td>
 
 		<td align="left" valign="top">
-			<!-- /////	Rollout process for different phases  ///// -->
+			<!-- ///// Rollout process for different phases /////
+			     -->
 			<?php if ( $stage->onAlpha() ) { ?>
 				<h4>Rollout Process</h4>
 				When you are ready, review the below file list to make sure:

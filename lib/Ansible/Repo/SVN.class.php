@@ -314,7 +314,11 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 					END_TIMER('REPO_CMD(log for del rev)', PROJECT_PROJECT_TIMERS);
 					END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 #                    bug('Parent Log', substr($parent_verbose,0,1000 ));
-					if ( preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $parent_verbose, $m, PREG_SET_ORDER) != 0 ) {
+					###  New Parsing Method (more flexible and forgiving)
+					foreach ( $this->parse_log($clog) as $rev => $data ) {
+						$m[] = array(null,$rev, $data['committer']);
+					}
+					if ( ! empty( $m ) ) {
 #                        bug('REVS:', count($m), $m[0]);
 						$deleted_parents_pattern = empty( $deleted_parents ) ? '' : '|\Q'. join('\E|\Q', $deleted_parents) .'\E';
 						$pre_deletion_rev = null;  $deletion_entry = null;
@@ -690,8 +694,14 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 			$clog = $this->get_log($file);
 
 			///  Match
-			$matches = preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $clog, $m, PREG_PATTERN_ORDER);
-			if ( ! empty( $matches ) ) {
+######  Old All-regex parsing mechanism.  It threw up (non-match) when it hit a 600K commit message...
+###			$matches = preg_match_all('/---------+\nr(\d+)\s*\|\s*([^\s\|]+)\s*\|.+?(?=---------+|$)/s', $clog, $m, PREG_PATTERN_ORDER);
+			###  New Parsing Method (more flexible and forgiving)
+			foreach ( $this->parse_log($clog) as $rev => $data ) {
+				$m[1][] = $rev;
+				$m[2][] = $data['committer'];
+			}
+			if ( ! empty( $m[1] ) ) {
 
 				///  Set it from the regex
 				$this->repo_cache[$cache_key][$file]['revisions']  = empty( $m ) ? array() : $m[1];
@@ -727,9 +737,29 @@ class Ansible__Repo__SVN extends Ansible__Repo {
         return( array( $this->repo_cache[$cache_key][$file]['revisions'], $this->repo_cache[$cache_key][$file]['committers'] ) );
     }
 
+    public function parse_log($clog) {
+		$log = array();
+		$revs = preg_split('/(^|[\r\n]+)-----------------------+([\r\n]+|$)/', $clog);
+		foreach ( $revs as $rev ) {
+			if ( empty( $rev ) ) continue;
+			list($header, $body) = preg_split('/[\r\n]+/', $rev, 2);
+			$parts = preg_split('/\s*\|\s*/', $header);
+			if ( count($parts) < 3 ) continue;
+			$log[ ltrim($parts[0],'r') ]
+				= array( 'revision'  => ltrim($parts[0],'r'),
+						 'committer' => $parts[1],
+						 'date'      => strtotime($parts[2]),
+						 'message'   => $body,
+						 'raw'       => $rev,
+						 );
+		}
+		return $log;
+	}
+
     public function get_log_entry( $clog, $rev ) {
-        preg_match('/---------+\nr\Q'. $rev .'\E\s*\|.+?(?=---------+|$)/s', $clog, $m);
-        return $m[0];
+#        preg_match('/---------+\nr\Q'. $rev .'\E\s*\|.+?(?=---------+|$)/s', $clog, $m);
+		$parsed = $this->parse_log($clog);
+        return( isset( $parsed[ $rev ] ) ? "------------------------------------------------------------------------\n". $parsed[ $rev ]['raw'] : null );
     }
 
 	public function expire_token() {

@@ -13,7 +13,7 @@ class Ansible__root extends Stark__Controller__Base {
 		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
 		///  Read the env
-		if ( ! empty( $_SESSION['env'] ) ) $ctl->stage->env = $_SESSION['env'];
+		if ( ! empty( $_SESSION['env'] ) ) $ctl->stage->set_env( $_SESSION['env'] );
 		///  Of if it's not set, bounce them to where they can choose an ENV
 		else if ( $path    != $ctl->stage->url_prefix.'/index.php'
 				  && $path != $ctl->stage->url_prefix.'/change_env.php' 
@@ -36,7 +36,7 @@ class Ansible__root extends Stark__Controller__Base {
 	public function change_env_page($ctl) {
 		if ( ! empty( $_REQUEST['env'] ) ) {
 			$_SESSION['env'] = $_REQUEST['env'];
-			$ctl->stage->env = $_SESSION['env']; # probably unneccesary
+			$ctl->stage->set_env( $_SESSION['env'] ); # probably unneccesary
 		}
 		
 		///  Return vars
@@ -114,10 +114,10 @@ class Ansible__root extends Stark__Controller__Base {
 		            
 		                    ###  Add a diff link if Locally Modified
 		                    if ( $is_modified ) {
-		                        $cur_vers = "<a href=\"actions/diff.php?from_rev=$cur_rev&to_rev=local&file=". urlencode($file) ."\">$status</a>, $cur_rev";
+		                        $cur_vers = "<a href=\"actions/diff.php?from_rev=$cur_rev&to_rev=local&file=". urlencode($file) ."\">$status</a>, <span class=\"cur-vers\">$cur_rev</span>";
 		                        $locally_modified = true;
 		                    }
-		                    else { $cur_vers = "$status, $cur_rev"; }
+		                    else { $cur_vers = "$status, <span class=\"cur-vers\">$cur_rev</span>"; }
 		                } else {
 		                    $cur_vers = "<div title=\"". htmlentities( $stage->repo()->get_status($file)) ."\"><i>". $error ."</i></div>";
 		                }
@@ -151,25 +151,59 @@ DELAY
 */
 ));
 
-		        ###  Get PROD_TEST Version
-		        $file_line['prod_test_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+		        ###  Get Live Version
+		        $file_line['live_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
 		            global $stage;
-		
-					list($cur_rev) = $stage->repo()->get_current_rev( $file );
-		
-					///  So it will show the "Loading..."
-					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-		
-		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
-		            if ( ! empty( $prod_test_rev ) ) {
-		                if ( $prod_test_rev != $cur_rev ) {
-		                    $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
+  					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+
+		            if ( ! file_exists($stage->live_repo()->stage->env()->repo_base ."/$file") ) {
+		                $cur_vers = '<i>-- n/a --</i>';
+		            } else if ( is_dir($stage->live_repo()->stage->env()->repo_base ."/$file") ) {
+		                $cur_vers = '<i>Directory</i>';
+		            } else {
+		                list($live_rev, $error, $status, $state_code, $is_modified)
+		                    = $stage->live_repo()->get_current_rev( $file );
+
+						$pre = '';
+						$post = '';
+						if ( $live_rev != $cur_rev ) {
+							$pre = '<b><font color=red>';
+							$post = '</font></b>';
+						}
+		                if ( empty( $error ) ) {
+		            
+		                    ###  Add a diff link if Locally Modified
+		                    if ( $is_modified ) {
+		                        $cur_vers = "<a href=\"actions/diff.php?env=". $stage->live_repo()->stage->env ."&from_rev=$live_rev&to_rev=local&file=". urlencode($file) ."\">Local Mod on Prod</a>, $pre$live_rev$post";
+		                        $locally_modified = true;
+		                    }
+		                    else { $cur_vers = "$pre$live_rev$post"; }
+		                } else {
+		                    $cur_vers = "<div title=\"". htmlentities( $stage->live_repo()->get_status($file)) ."\"><i>". $error ."</i></div>";
 		                }
-		                else { $prod_test_vers = $prod_test_rev; }
 		            }
-		            else { $prod_test_vers = '<i>-- n/a --</i>'; }
+					
 		
-		            return $prod_test_vers;
+		            return $cur_vers;
+
+
+###  		            global $stage;
+###  		
+###  					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+###  		
+###  					///  So it will show the "Loading..."
+###  					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+###  		
+###  		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
+###  		            if ( ! empty( $prod_test_rev ) ) {
+###  		                if ( $prod_test_rev != $cur_rev ) {
+###  		                    $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
+###  		                }
+###  		                else { $prod_test_vers = $prod_test_rev; }
+###  		            }
+###  		            else { $prod_test_vers = '<i>-- n/a --</i>'; }
+###  		
+###  		            return $prod_test_vers;
 DELAY
 */
 ));
@@ -190,9 +224,9 @@ DELAY
 		                          || $file_tags[$file] == $cur_rev
 		                          )
 		                     ) {
-		                    $head_vers = "<b><font color=red>$head_rev</font></b>";
+		                    $head_vers = "<b><font color=red><span class=\"head-vers\">$head_rev</span></font></b>";
 		                }
-		                else { $head_vers = $head_rev; }
+		                else { $head_vers = '<span class="head-vers">'. $head_rev .'</span>'; }
 		            } else if ( $error_code == 'not_exists' ) {
 		                $head_vers = "<i>". $error ."</i>";
 		            } else {
@@ -236,10 +270,11 @@ DELAY
 					///  So it will show the "Loading..."
 					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
 		
-		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
+					list($live_rev) = $stage->live_repo()->get_current_rev( $file );
+#		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
 		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
 		            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-		            $c_by_rev = $stage->onLive() ? $cur_rev : $prod_test_rev;
+		            $c_by_rev = $stage->onLive() ? $cur_rev : $live_rev;
 		            if ( $c_by_rev && $target_rev ) {
 		                $diff_revs = $stage->repo()->get_revs_in_diff($file, $c_by_rev, $target_rev);
 		                $names = array();  foreach ( array_reverse( $diff_revs ) as $_ ) { $names[] = $stage->repo()->get_rev_committer( $file, $_ ); }
@@ -270,13 +305,14 @@ DELAY
 					///  So it will show the "Loading..."
 					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
 		
-		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
+					list($live_rev) = $stage->live_repo()->get_current_rev( $file );
+#		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
 		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
 		            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
-		            $c_by_rev = $stage->onLive() ? $cur_rev : ( $prod_test_rev ?: 1);
+		            $c_by_rev = $stage->onLive() ? $cur_rev : ( $live_rev ?: 1);
 		
 		            $actions = '<i>n/a</i>';
-					bug($file, $stage->env(), $stage->onLive(), $target_rev, $c_by_rev, $prod_test_rev, $cur_rev);
+#					bug($file, $stage->env(), $stage->onLive(), $target_rev, $c_by_rev, $live_rev, $cur_rev);
 		            if ( $c_by_rev && $target_rev ) {
 		                $actions = ( '<a class="log-modal-link"'
 						             . ' href="actions/part_log.php'
