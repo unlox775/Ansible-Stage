@@ -25,13 +25,14 @@ $stage = new Ansible__Stage( '',
 									'url_prefix'  => '',
 									)
 							 );
+$GLOBALS['controller'] = (object) array('stage' => $stage );
 
 if ( ! $suppress_header ) {
 	echo "\nAll Active Projects:\n";
 	echo "--------------------\n";
 }
 
-list($projects, $groups) = $stage->get_projects_by_group($category);
+list($projects, $groups) = $stage->get_projects_by_group($category, true);
 foreach ( array_keys( $projects ) as $group ) {
 	foreach ( $projects[ $group ] as $project ) {
 		echo ( (($show_groups) ? ( isset( $groups[$group] ) ? $groups[$group] : $group ).'/' : '')

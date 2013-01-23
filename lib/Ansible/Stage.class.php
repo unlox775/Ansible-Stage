@@ -540,16 +540,18 @@ class Ansible__Stage {
 		return $projects;
 	}
 
-	public function get_projects() {
+	public function get_projects($no_grouping = false) {
 		$projects = array();
 
 		require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
 		$projects_in_groups = array();
-		foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
-			foreach ( $group->projects as $project ) {
-				$projects_in_groups[ $project->proxy()->project_name ] = true;
+		if ( ! $no_grouping ) {
+			foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
+				foreach ( $group->projects as $project ) {
+					$projects_in_groups[ $project->proxy()->project_name ] = true;
+				}
+				$projects[] = 'RollGroup|'. $group->rlgp_id;
 			}
-			$projects[] = 'RollGroup|'. $group->rlgp_id;
 		}
 
 		///  Get the files from an ls
@@ -574,7 +576,7 @@ class Ansible__Stage {
 		return explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base/archive | /bin/grep -E -v '^($ignore_regex)\$'`);
 	}
 
-	public function get_projects_by_group($category = 'active') {
+	public function get_projects_by_group($category = 'active', $no_grouping = false) {
 		require_once($this->config('lib_path'). '/Ansible/ProjectProxy.class.php');
 
 		###  Project Groups
@@ -586,7 +588,7 @@ class Ansible__Stage {
 						 );
 
 		$projects = array();
-		$category_list = $category == 'archived' ? $this->get_archived_projects() : $this->get_projects();
+		$category_list = $category == 'archived' ? $this->get_archived_projects() : $this->get_projects($no_grouping);
 		$file_lines = array();
 		foreach ( $category_list as $project_name ) {
 			if ( empty( $project_name ) ) continue;
