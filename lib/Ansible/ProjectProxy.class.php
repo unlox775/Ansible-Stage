@@ -15,6 +15,7 @@ class Ansible__ProjectProxy {
 
 	public static $get_file_cache = array();
 	public static $affected_file_cache = array();
+	public static $affected_file_lookup = array();
 	public static $code_path_map = null;
 	public static $proj_id_obj_map = null;
 	public static $proj_code_obj_map = null;
@@ -241,6 +242,7 @@ class Ansible__ProjectProxy {
         if ( ! isset( self::$affected_file_cache[ $this->project_name ] ) ) {
 			START_TIMER('Project->get_affected_files()', PROJECT_PROJECT_TIMERS);
 			self::$affected_file_cache[ $this->project_name ] = array();
+			self::$affected_file_lookup[ $this->project_name ] = array();
 			///  Group Mode
 			if ( $this->proxy_mode == 'group' ) {
 				$pre_list_files = array();
@@ -250,6 +252,7 @@ class Ansible__ProjectProxy {
 							$pre_list_files[$file] = true;
 						} else {
 							self::$affected_file_cache[ $this->project_name ][ $file ] = true;
+							self::$affected_file_lookup[ $this->project_name ][ $file ] = true;
 						}
 					}
 				}
@@ -267,6 +270,7 @@ class Ansible__ProjectProxy {
 					if ( strlen( $file ) == 0 ) continue;
 					
 					array_push( self::$affected_file_cache[ $this->project_name ], $file );
+					self::$affected_file_lookup[ $this->project_name ][ $file ] = true;
 				}
 			}
 			END_TIMER('Project->get_affected_files()', PROJECT_PROJECT_TIMERS);
@@ -275,6 +279,11 @@ class Ansible__ProjectProxy {
         return self::$affected_file_cache[ $this->project_name ];
     }
     
+	public function includes_file($file) {
+		if ( ! isset( self::$affected_file_lookup[ $this->project_name ] ) ) $this->get_affected_files();
+		return isset( self::$affected_file_lookup[ $this->project_name ][ $file ] );
+	}
+
     public function get_file_tags()  {
         if ( empty( $this->file_tags_cache ) ) {
             $this->file_tags_cache = array();

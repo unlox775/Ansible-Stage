@@ -59,6 +59,7 @@ class Stark__Controller {
 	}
 
 	public function handler() {
+		START_TIMER('Stark->handler()', $this->STARK_PROFILING);
 		//  Load Main Libraries
 		if ( ! empty( $this->STARK_PROFILING ) ) START_TIMER('STARK-controller-lib_load');
 		require_once($this->lib_path. '/Stark/View.class.php');
@@ -79,14 +80,18 @@ class Stark__Controller {
 
 		///  Page Handler
 		list( $page_ctl, $page_page ) = $this->load_controller_by_path($this->path);
+		START_TIMER('Stark->handler() - dirhandler', $this->STARK_PROFILING);
 		$this->run_directory_handlers($this->path, $page_ctl);
+		END_TIMER('Stark->handler() - dirhandler', $this->STARK_PROFILING);
 		if ( ! empty( $page_ctl ) ) { // If the controller is defined...
 			$method = $page_page . ( ( ! empty( $_SERVER['__STARK_AJAX_MODE__'] ) ) ? '_ajax' : '_page' );
 
 			///  Call the handler if it is defined
             $exists = ( method_exists($page_ctl, 'real_method_exists' ) ? $page_ctl->real_method_exists($method) : method_exists($page_ctl, $method ) );
 			if ( $exists ) {
+				START_TIMER('Stark->handler() - controller', $this->STARK_PROFILING);
 				$scope = $page_ctl->$method( $this );
+				END_TIMER('Stark->handler() - controller', $this->STARK_PROFILING);
 
 				if ( $this->close_session_after_view  ) session_write_close();
 
@@ -106,6 +111,7 @@ class Stark__Controller {
 		}
 
 		if ( ! empty( $this->STARK_PROFILING ) ) END_TIMER('STARK-controller-handlers');
+		END_TIMER('Stark->handler()', $this->STARK_PROFILING);
 	}
 
 	public function load_controller_by_path($path) {
