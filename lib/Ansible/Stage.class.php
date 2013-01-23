@@ -59,6 +59,7 @@ class Ansible__Stage {
 				 'update_to_last_rollout_point'  => 'Re-Rolling to Roll Point',
 				 );
 
+	protected $__stark_cache = array();
 	protected $send_cmd_i = 1;
 	protected $flush_i = 1;
 
@@ -277,6 +278,10 @@ class Ansible__Stage {
 			}
 		}
 		return $this->__dbh;
+	}
+	function dbh_open_savepoint() {
+		require_once($this->config('lib_path'). '/PhoneySavePoint.class.php');
+		return new PhoneySavePoint( $this->dbh() );
 	}
 
 	#########################
@@ -498,6 +503,7 @@ class Ansible__Stage {
 	###  Projects Access
 
 	public function get_projects_url($projects, $exclude = false) {
+
 		$params = array();
 		$project_codes = array();
 		foreach ( (array) $projects as $project ) {
@@ -541,29 +547,49 @@ class Ansible__Stage {
 	}
 
 	public function get_projects($no_grouping = false) {
-		$projects = array();
-
-		require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
-		$projects_in_groups = array();
-		if ( ! $no_grouping ) {
-			foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
-				foreach ( $group->projects as $project ) {
-					$projects_in_groups[ $project->proxy()->project_name ] = true;
+		if ( ! isset( $this->__stark_cache['get_projects'] ) ) {
+			START_TIMER('Stage->get_projects()', PROJECT_PROJECT_TIMERS);
+			$projects = array();
+	
+			require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
+			$projects_in_groups = array();
+			if ( ! $no_grouping ) {
+				foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
+					foreach ( $group->projects as $project ) {
+						$projects_in_groups[ $project->proxy()->project_name ] = true;
+					}
+					$projects[] = 'RollGroup|'. $group->rlgp_id;
 				}
-				$projects[] = 'RollGroup|'. $group->rlgp_id;
 			}
+
+			$projects = array();
+
+			require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
+			$projects_in_groups = array();
+			if ( ! $no_grouping ) {
+				foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
+					foreach ( $group->projects as $project ) {
+						$projects_in_groups[ $project->proxy()->project_name ] = true;
+					}
+					$projects[] = 'RollGroup|'. $group->rlgp_id;
+				}
+			}
+
+			///  Get the files from an ls
+			$tmp = func_get_args();
+			$project_base = $this->config('project_base');
+			$ignore_regex = $this->config('project_base_ignore_regexp');
+			if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
+			foreach ( explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base | /bin/grep -E -v '^(archive|logs|$ignore_regex)\$'`) as $project_name ) {
+				if ( isset( $projects_in_groups[ $project_name ] ) ) continue;
+				$projects[] = $project_name;
+			}
+
+			$this->__stark_cache['get_projects'] = $projects;
+			END_TIMER('Stage->get_projects()', PROJECT_PROJECT_TIMERS);
 		}
 
-		///  Get the files from an ls
-		$tmp = func_get_args();
-		$project_base = $this->config('project_base');
-		$ignore_regex = $this->config('project_base_ignore_regexp');
-		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
-		foreach ( explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base | /bin/grep -E -v '^(archive|logs|$ignore_regex)\$'`) as $project_name ) {
-			if ( isset( $projects_in_groups[ $project_name ] ) ) continue;
-			$projects[] = $project_name;
-		}
-		return $projects;
+		return $this->__stark_cache['get_projects'];
 	}
 
 	public function get_archived_projects() {

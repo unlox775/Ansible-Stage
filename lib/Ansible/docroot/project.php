@@ -1,6 +1,14 @@
 <?php require(dirname($_SERVER['SCRIPT_FILENAME']) .'/ansible-controller.inc.php') ?>
 <?php require( $_SERVER['DOCUMENT_ROOT'] . $ctl->SKIN_BASE .'/inc/header.inc.php' ); ?>
 
+<!--
+<script type="text/javascript">
+$(document).ready(function() {
+	setTimeout("location.reload(true);",60000);
+});
+</script>
+-->
+
 <!-- /////  Command output ///// -->
 <?php if ( ! empty($view->previous_command ) ) { ?>
 	<?php require($stage->extend->run_hook('command_output', 0)) ?>

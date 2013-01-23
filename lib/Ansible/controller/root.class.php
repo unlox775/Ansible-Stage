@@ -90,19 +90,27 @@ class Ansible__root extends Stark__Controller__Base {
 		$locally_modified = false;
 		$project_data = array();
 		foreach ( $projects as $project ) {
+			START_TIMER('project_page - proj loop', PROJECT_PROJECT_TIMERS);
+			START_TIMER('project_page - proj loop(1)', PROJECT_PROJECT_TIMERS);
 	
 			###  Load and parse the file list
 			$file_tags = $project->get_file_tags();
 			$files = $project->get_affected_files();
 			$project_data[$project->project_name]['project'] = $project;
 			$project_data[$project->project_name]['file_lines'] = array();
+			END_TIMER('project_page - proj loop(1)', PROJECT_PROJECT_TIMERS);
 			foreach ( $files as $file ) {
+				START_TIMER('project_page - file loop', PROJECT_PROJECT_TIMERS);
 				$file_line = array( 'file' => $file, 
 									);
 	
+				$stage = $ctl->stage;
+
+				START_TIMER('project_page - file loop(2)', PROJECT_PROJECT_TIMERS);
 		        ###  Get Current Version
-		        $file_line['cur_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-		            global $stage;
+#		        $file_line['cur_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+#		            global $stage;
+				    START_TIMER('current_version column', PROJECT_PROJECT_TIMERS);
 		            if ( ! file_exists($stage->env()->repo_base ."/$file") ) {
 		                $cur_vers = '<i>-- n/a --</i>';
 		            } else if ( is_dir($stage->env()->repo_base ."/$file") ) {
@@ -123,37 +131,43 @@ class Ansible__root extends Stark__Controller__Base {
 		                }
 		            }
 		
-		            return $cur_vers;
-DELAY
-*/
-));
+				    END_TIMER('current_version column', PROJECT_PROJECT_TIMERS);
+		            $file_line['cur_vers'] =  $cur_vers;
+#return $cur_vers;
+#DELAY
+#*/
+#));
 
-		        ###  Get PROD_SAFE Version
-		        $file_line['prod_safe_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-		            global $stage;
-		
-					list($cur_rev) = $stage->repo()->get_current_rev( $file );
-		
-					///  So it will show the "Loading..."
-					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-		
-		            $prod_safe_rev = $stage->repo()->get_tag_rev($file, 'PROD_SAFE');
-		            if ( $prod_safe_rev ) {
-		                if ( $prod_safe_rev != $cur_rev ) {
-		                    $prod_safe_vers = "<b><font color=red>$prod_safe_rev</font></b>";
-		                }
-		                else { $prod_safe_vers = $prod_safe_rev; }
-		            }
-		            else { $prod_safe_vers = '<i>-- n/a --</i>'; }
-		
-		            return $prod_safe_vers;
-DELAY
-*/
-));
+###  		        ###  Get PROD_SAFE Version
+###  #		        $file_line['prod_safe_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+###  #		            global $stage;
+###  				    START_TIMER('prod_safe_version column', PROJECT_PROJECT_TIMERS);
+###  		
+###  					list($cur_rev) = $stage->repo()->get_current_rev( $file );
+###  		
+###  					///  So it will show the "Loading..."
+###  					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
+###  		
+###  		            $prod_safe_rev = $stage->repo()->get_tag_rev($file, 'PROD_SAFE');
+###  		            if ( $prod_safe_rev ) {
+###  		                if ( $prod_safe_rev != $cur_rev ) {
+###  		                    $prod_safe_vers = "<b><font color=red>$prod_safe_rev</font></b>";
+###  		                }
+###  		                else { $prod_safe_vers = $prod_safe_rev; }
+###  		            }
+###  		            else { $prod_safe_vers = '<i>-- n/a --</i>'; }
+###  		
+###  				    END_TIMER('prod_safe_version column', PROJECT_PROJECT_TIMERS);
+###  		            $file_line['prod_safe_vers'] =  $prod_safe_vers;
+###  #return $prod_safe_vers;
+###  #DELAY
+###  #*/
+###  #));
 
 		        ###  Get Live Version
-		        $file_line['live_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
-		            global $stage;
+#$file_line['live_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
+#global $stage;
+				    START_TIMER('live_version column', PROJECT_PROJECT_TIMERS);
   					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 
 		            if ( ! file_exists($stage->live_repo()->stage->env()->repo_base ."/$file") ) {
@@ -175,7 +189,6 @@ DELAY
 		                    ###  Add a diff link if Locally Modified
 		                    if ( $is_modified ) {
 		                        $cur_vers = "<a href=\"actions/diff.php?env=". $stage->live_repo()->stage->env ."&from_rev=$live_rev&to_rev=local&file=". urlencode($file) ."\">Local Mod on Prod</a>, $pre$live_rev$post";
-		                        $locally_modified = true;
 		                    }
 		                    else { $cur_vers = "$pre$live_rev$post"; }
 		                } else {
@@ -184,33 +197,17 @@ DELAY
 		            }
 					
 		
-		            return $cur_vers;
-
-
-###  		            global $stage;
-###  		
-###  					list($cur_rev) = $stage->repo()->get_current_rev( $file );
-###  		
-###  					///  So it will show the "Loading..."
-###  					list( $all_revs ) = $stage->repo()->get_all_log_revs($file);
-###  		
-###  		            $prod_test_rev = $stage->repo()->get_tag_rev($file, 'PROD_TEST');
-###  		            if ( ! empty( $prod_test_rev ) ) {
-###  		                if ( $prod_test_rev != $cur_rev ) {
-###  		                    $prod_test_vers = "<b><font color=red>$prod_test_rev</font></b>";
-###  		                }
-###  		                else { $prod_test_vers = $prod_test_rev; }
-###  		            }
-###  		            else { $prod_test_vers = '<i>-- n/a --</i>'; }
-###  		
-###  		            return $prod_test_vers;
-DELAY
-*/
-));
+				    END_TIMER('live_version column', PROJECT_PROJECT_TIMERS);
+		            $file_line['live_vers'] = $cur_vers;
+#return $cur_vers;
+#DELAY
+#*/
+#));
 
 		        ###  Get HEAD Version
-		        $file_line['head_vers'] = delayed_load_span(array($file,$project,$file_tags), create_function('$file,$project,$file_tags',now_doc('DELAY')/*
-		            global $stage;
+#$file_line['head_vers'] = delayed_load_span(array($file,$project,$file_tags), create_function('$file,$project,$file_tags',now_doc('DELAY')/*
+#global $stage;
+                    START_TIMER('head_version column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -233,14 +230,17 @@ DELAY
 		                $head_vers = "<div title=\"". htmlentities( $stage->repo()->get_log($file) ) ."\"><i>". $error ."</i></div>";
 		            }
 		
-		            return $head_vers;
-DELAY
-*/
-));
+				    END_TIMER('head_version column', PROJECT_PROJECT_TIMERS);
+		            $file_line['head_vers'] =  $head_vers;
+#return $head_vers;
+#DELAY
+#*/
+#));
 
 		        ###  Do Target
-		        $file_line['target_vers'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
-		            global $stage;
+#$file_line['target_vers'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
+#global $stage;
+				    START_TIMER('target_version column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -256,14 +256,17 @@ DELAY
 						else {                           $target_vers = "<b><font color=green>". $rev_display ."</font></b>"; }
 		            }
 		
-		            return $target_vers;
-DELAY
-*/
-));
+				    END_TIMER('target_version column', PROJECT_PROJECT_TIMERS);
+		            $file_line['target_vers'] =  $target_vers;
+#return $target_vers;
+#DELAY
+#*/
+#));
 
 		        ###  Changes by
-		        $file_line['changes_by'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
-		            global $stage;
+#$file_line['changes_by'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
+#global $stage;
+				    START_TIMER('changes_by column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -275,6 +278,7 @@ DELAY
 		            list($head_rev, $error, $error_code) = $stage->repo()->get_head_rev($file);
 		            list($target_rev, $used_file_tags) = $project->determine_target_rev($file, $head_rev);
 		            $c_by_rev = $stage->onLive() ? $cur_rev : $live_rev;
+					$changes_by = null;
 		            if ( $c_by_rev && $target_rev ) {
 		                $diff_revs = $stage->repo()->get_revs_in_diff($file, $c_by_rev, $target_rev);
 		                $names = array();  foreach ( array_reverse( $diff_revs ) as $_ ) { $names[] = $stage->repo()->get_rev_committer( $file, $_ ); }
@@ -291,14 +295,17 @@ DELAY
 		                if ( empty($changes_by) ) $changes_by = count( $diff_revs ) .' rev'. (count($diff_revs) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
 		            }
 		
-		            return $changes_by;
-DELAY
-*/
-));
+				    END_TIMER('changes_by column', PROJECT_PROJECT_TIMERS);
+		            $file_line['changes_by'] =  $changes_by;
+#return $changes_by;
+#DELAY
+#*/
+#));
 
 		        ###  Actions
-		        $file_line['actions'] = delayed_load_span(array($file,$project,$projects), create_function('$file,$project,$projects',now_doc('DELAY')/*
-		            global $stage;
+#$file_line['actions'] = delayed_load_span(array($file,$project,$projects), create_function('$file,$project,$projects',now_doc('DELAY')/*
+#global $stage;
+				    START_TIMER('action column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -334,40 +341,51 @@ DELAY
 		                             );
 		            }
 		
-		            return $actions;
-DELAY
-*/
-));
+				    END_TIMER('action column', PROJECT_PROJECT_TIMERS);
+		            $file_line['actions'] =  $actions;
+#return $actions;
+#DELAY
+#*/
+#));
+				END_TIMER('project_page - file loop(2)', PROJECT_PROJECT_TIMERS);
 
+				$project_data[$project->project_name]['files'][] = $file_line;
+				
+				END_TIMER('project_page - file loop', PROJECT_PROJECT_TIMERS);
+			}
 
-				###  Other Projects Sharing files
-				$other_projects = array();
-				foreach ( $ctl->stage->get_projects() as $pname ) {
-					if ( empty( $pname ) || $pname == $project->project_name ) continue;
+			###  Other Projects Sharing files
+			START_TIMER('project_page - proj loop(100)', PROJECT_PROJECT_TIMERS);
+			$other_projects = array();
+			foreach ( $ctl->stage->get_projects() as $pname ) {
+				if ( empty( $pname ) || $pname == $project->project_name ) continue;
+				START_TIMER('project_page - proj loop(100) - loop', PROJECT_PROJECT_TIMERS);
 
-					$other_project = new Ansible__ProjectProxy( $pname, $ctl->stage, false );
-					if ( ! in_array( $other_project->get_group(), array( '00_none','01_staging','03_testing_done','04_prod_rollout_prep' ) ) )
-						continue;
+				$other_project = new Ansible__ProjectProxy( $pname, $ctl->stage, false );
+				if ( ! in_array( $other_project->get_group(), array( '00_none','01_staging','03_testing_done','04_prod_rollout_prep' ) ) ) {
+					END_TIMER('project_page - proj loop(100) - loop', PROJECT_PROJECT_TIMERS);
+					continue;
+				}
 
-					foreach ( $files as $our_file ) {
-						foreach ( $other_project->get_affected_files() as $their_file ) {
-							if ( $our_file == $their_file ) {
-								if ( ! isset( $other_projects[ $pname ] ) )
-									$other_projects[ $pname ] = array( 'data' =>
-																	   array( 'project' => $other_project,
-																			  'included' => isset( $projects_lookup[ $other_project->project_name ] ),
-																			  'remove_project_url' => $ctl->stage->get_projects_url($projects, $other_project->project_name),
-																			  )
-																	   );
-								$other_projects[ $pname ][] = $their_file;
-							}
-						}
+				foreach ( $files as $our_file ) {
+					if ( $other_project->includes_file( $our_file ) ) {
+						if ( ! isset( $other_projects[ $pname ] ) )
+							$other_projects[ $pname ] = array( 'data' =>
+															   array( 'project' => $other_project,
+																	  'included' => isset( $projects_lookup[ $other_project->project_name ] ),
+																	  'remove_project_url' => $ctl->stage->get_projects_url($projects, $other_project->project_name),
+																	  )
+															   );
+						$other_projects[ $pname ][] = $our_file;
 					}
 				}
-				$project_data[$project->project_name]['other_projects'] = $other_projects;
-				$project_data[$project->project_name]['remove_project_url'] = $ctl->stage->get_projects_url($projects, $project->project_name);
-				$project_data[$project->project_name]['files'][] = $file_line;
+				END_TIMER('project_page - proj loop(100) - loop', PROJECT_PROJECT_TIMERS);
 			}
+			$project_data[$project->project_name]['other_projects'] = $other_projects;
+			$project_data[$project->project_name]['remove_project_url'] = $ctl->stage->get_projects_url($projects, $project->project_name);
+			END_TIMER('project_page - proj loop(100)', PROJECT_PROJECT_TIMERS);
+
+			END_TIMER('project_page - proj loop', PROJECT_PROJECT_TIMERS);
 		}
 			
 		return array( 'projects'           => $projects,

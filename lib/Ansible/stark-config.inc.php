@@ -22,6 +22,7 @@ $config->stage = new Ansible__Stage( '',
 											)
 									 );
 
+$config->STARK_PROFILING = $config->stage->ANSIBLE_PROFILING;
 
 /////////////////////////
 ///  Ansible Skin Configuration

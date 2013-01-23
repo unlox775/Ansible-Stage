@@ -6,7 +6,7 @@ if ( ! function_exists('bug')
      ) require_once(dirname('__FILE__') .'/debug.inc.php');
 define('ORM_SQL_PROFILE', false );
 define('ORM_SQL_DEBUG',   false );
-define('ORM_SQL_WRITE_DEBUG', false);
+define('ORM_SQL_WRITE_DEBUG', true);
 
 $GLOBALS['Stark__ORM_OBJECT_CACHE'] = array();
 $GLOBALS['Stark__ORM_DBH_CACHE'] = array();
@@ -321,6 +321,11 @@ class Stark__ORM {
         ###  Otherwise, they called it with none or not enough PKey params, so they must be plannin on calling ->create() later...
         else $this->__obj_state = 'not_created';
     }
+    public function de_singleton() {
+		unset( $Stark__ORM_OBJECT_CACHE[ $this->__dbh ][$this->__cache_key] );
+		$this->__cache_key = null;
+	}
+	
     ///  Wait as late as possible to get the DBH...
     protected function load_dbh() {
         ###  Get the database handle

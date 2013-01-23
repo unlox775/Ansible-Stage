@@ -15,6 +15,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 	public $revision_cache_expire_token = false;
 	public $checked_repository_root = false;
 	public $repository_root = false;
+	public $checked_svn_root = false;
+	public $svn_root = false;
  
     #########################
     ###  Action Methods
@@ -274,8 +276,8 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 				$cmd_prefix = $this->stage->config('repo_cmd_prefix');
 				$svn_path = $this->get_repository_root();
 #				bug("${cmd_prefix}svn log $limit_arg -r HEAD:1 \"$svn_path/$file\" 2>&1 | cat"); exit;
-                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$svn_path/$file" 2>&1 | cat`;
-#                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
+                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log -v $limit_arg -r HEAD:1 "$svn_path/$file" 2>&1 | cat`;
+#                $this->repo_cache['log'][$file] = `${cmd_prefix}svn log -v $limit_arg -r HEAD:1 "$file" 2>&1 | cat`;
                 END_TIMER('REPO_CMD(log)', PROJECT_PROJECT_TIMERS);
                 END_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
 
@@ -603,7 +605,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 				}
             } else {
                 $error = "malformed $this->command_name status";
-                $error_code = 'malformed';
+                $state_code = 'malformed';
             }
             //  States (Should be ding this by letter.... TODO)
             if      ( $status == 'Locally Modified' )          { $state_code = 'locally_modified'; $is_modified = true; }
@@ -611,7 +613,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
             else if ( $status == 'File had conflicts on merge' ) $state_code = 'conflict';
         } else {
             $error = "malformed $this->command_name status";
-            $error_code = 'malformed';
+            $state_code = 'malformed';
             $is_modified = true;
         }
         
@@ -742,15 +744,39 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 		$revs = preg_split('/(^|[\r\n]+)-----------------------+([\r\n]+|$)/', $clog);
 		foreach ( $revs as $rev ) {
 			if ( empty( $rev ) ) continue;
-			list($header, $body) = preg_split('/[\r\n]+/', $rev, 2);
+			list($header, $body) = preg_split('/(\r\n|\n\r|\r|\n)/', $rev, 2);
+
+			###  Read Header
 			$parts = preg_split('/\s*\|\s*/', $header);
 			if ( count($parts) < 3 ) continue;
+
+			###  Read Body
+			$changed_paths = array();
+			if ( strpos($body, 'Changed paths:') === 0 ) {
+				list($changed_paths_str, $message) = preg_split('/(\r\n|\n\r|\r|\n){2}/', $body, 2);
+				array_shift($changed_paths); //  Drop the first "Changed paths:" line
+				foreach ( preg_split('/(\r\n|\n\r|\r|\n)/',    $changed_paths_str) as $i => $raw ) {
+					if ( $i == 0 ) continue; // skip header line
+					if ( ! preg_match('/^\s+([A-Z])\s+(\/.*[^\)])(?: \(from (\/.*?[^\)]):(\d+)\))?$/', $raw, $m) ) 
+						return trigger_error('Could not parse changed_path line: '. $raw . bug($rev), E_USER_ERROR);
+					$info = array( 'file' => $m[2],
+								   'action' => ($m[1] == 'A' || $m[1] == 'R' ? 'add' : ($m[1] == 'M' ? 'modify' : ($m[1] == 'D' ? 'remove' : 'meta'))),
+								   'raw_action' => $m[1],
+								   );
+					if ( ! empty( $m[3] ) ) $info['from_file']     = $m[3];
+					if ( ! empty( $m[4] ) ) $info['from_revision'] = $m[4];
+					$changed_paths[] = $info;
+				}
+			}
+			else $message = ltrim($body,"\n\r");
+
 			$log[ ltrim($parts[0],'r') ]
-				= array( 'revision'  => ltrim($parts[0],'r'),
-						 'committer' => $parts[1],
-						 'date'      => strtotime($parts[2]),
-						 'message'   => $body,
-						 'raw'       => $rev,
+				= array( 'revision'  	 => ltrim($parts[0],'r'),
+						 'committer' 	 => $parts[1],
+						 'date'      	 => strtotime(substr($parts[2], 0,25)),
+						 'message'   	 => $message,
+						 'raw'       	 => $rev,
+						 'changed_paths' => $changed_paths,
 						 );
 		}
 		return $log;
@@ -766,13 +792,14 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 
 		///  If we haven't checked the expire token, check now
 		if ( ! $this->checked_revision_cache_expire_token ) {
+			START_TIMER('expire_token()', PROJECT_PROJECT_TIMERS);
 			///  Regardless, NOW, we've checked...
 			$this->checked_revision_cache_expire_token = true;
 
 			/// Quickest way to read the SVN address for the repo we are on (6th line of the entries file)...
             START_TIMER('REPO_CMD', PROJECT_PROJECT_TIMERS);
             START_TIMER('REPO_CMD(repo exp token)', PROJECT_PROJECT_TIMERS);
-			$svn_path = $this->get_repository_root();
+			$svn_path = $this->get_svn_root();
 			$cmd_prefix = $this->stage->config('repo_cmd_prefix');
 			$svn_info = shell_exec("${cmd_prefix}svn info \"$svn_path\" 2>&1 | cat");
             END_TIMER('REPO_CMD(repo exp token)', PROJECT_PROJECT_TIMERS);
@@ -789,6 +816,7 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 																	'SVN Output:', $svn_info,
 																	$this->stage->env()->repo_base
 																	);
+			END_TIMER('expire_token()', PROJECT_PROJECT_TIMERS);
 		}
 
 
@@ -807,6 +835,25 @@ class Ansible__Repo__SVN extends Ansible__Repo {
 		}
 
 		return $this->repository_root;
+	}
+	public function get_repository_relative_path() {
+		return substr($this->get_repository_root(),strlen($this->get_svn_root()));
+	}
+
+	public function get_svn_root() {
+		///  If we haven't checked the expire token, check now
+		if ( ! $this->checked_svn_root ) {
+			START_TIMER('get_svn_root()', PROJECT_PROJECT_TIMERS);
+			///  Regardless, NOW, we've checked...
+			$this->checked_svn_root = true;
+
+			/// Quickest way to read the SVN address for the repo we are on (6th line of the entries file)...
+			$repo = $this->stage->env()->repo_base;
+			$this->svn_root = trim(`head -n6 "$repo/.svn/entries" | tail -n1`);
+			END_TIMER('get_svn_root()', PROJECT_PROJECT_TIMERS);
+		}
+
+		return $this->svn_root;
 	}
 
 
