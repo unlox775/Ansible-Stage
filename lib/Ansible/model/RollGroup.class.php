@@ -10,6 +10,7 @@ class Ansible__RollGroup extends Ansible__ORM__Local {
 								 'creation_date' => array(),
 								 'creator'       => array(),
 								 'rollout_stage' => array(),
+								 'archived'      => array(),
 								 );
     protected $__relations = array(
         'projects' => array( 'relationship'        => 'has_many',

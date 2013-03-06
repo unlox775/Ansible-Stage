@@ -259,7 +259,7 @@ $(document).ready(function() {
 	          $data = $their_files['data'];  unset( $their_files['data'] );
 			  $content[] = ( '<a href="project.php?p='. urlencode($pname)
 							 . '" title="Sharing '. count($their_files) .' Files:'. "\n". join("\n", $their_files) .'">'
-							 . $pname
+							 . $data['project']->get_display_name()
 							 . ' ['. substr($data['project']->get_group(), 0, 2) .']'
 							 . '</a>'
 							 . ( $data['included']

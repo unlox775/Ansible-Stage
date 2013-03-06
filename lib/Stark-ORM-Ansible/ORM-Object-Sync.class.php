@@ -26,6 +26,7 @@ class ORM_Object_Sync {
 	public function sync_objects($main_class, $from_where) {
 	    SimpleORM::optimization_mode('memory');
 
+
 		///  Get all the FROM objects
 		$this->switch_to_db($this->from_env);
 		$from_db = $this->get_db($this->from_env);
@@ -37,6 +38,7 @@ class ORM_Object_Sync {
 		$this->switch_to_db($this->to_env);
 		$to_db = $this->get_db($this->to_env);
 		$to_db->beginTransaction();
+
 
 		$to   = $main_class::get_where(array($from_where));
 
@@ -100,6 +102,7 @@ class ORM_Object_Sync {
 			///  If Duplication errors, move to the end of the queue
 			try {
 				$to_set = $from_o->get_all();
+				if ( $this->debugging ) bugw("SYNCING... ", $to_set);
 				foreach( $from_o->get_primary_key() as $col ) if ( preg_match('/^\d+$/',  $to_set[ $col ] ) ) unset( $to_set[ $col ] );
 				$has_ones = $this->get_has_ones( $from_o, $from_o->clone_relations );
 				$to_set = array_merge($to_set, $has_ones);
@@ -389,7 +392,7 @@ class ORM_Object_Sync {
 			$class = $def['class'];
 
 			$from_rel = $from_o->get_relation( $relation );
-			if ( empty( $from_rel ) ) {
+			if ( empty( $from_rel ) || ! $from_rel->exists() ) {
 #			trace_dump();
 #			bug('FROM RELATION DID NOT EXIST for '. get_class($from_o) .'->'. $relation, $from_o->pk_values);
 				if ( $this->check_mode('has_one_set_null', $mode) ) {

@@ -85,7 +85,7 @@ sub choose_project {
     print "\nProjects to Switch to:\n\n";
 	my @all_projects;
 	my $base = 0;
-	foreach my $group ( sort keys( %projects ) ) {
+	foreach my $group ( reverse sort keys( %projects ) ) {
     	print "\t" . $group ."\n";
     	print "\t\t" . join( "\n\t\t",
     	                   map { ($base + $_ + 1) . ".\t" . $projects{$group}[$_]; }

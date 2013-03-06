@@ -36,7 +36,7 @@ class Ansible__actions extends Stark__Controller__Base {
 
 	public function archive_project_page ($ctl) {
 		if ( ! empty( $_REQUEST['p'] ) ) {
-			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-\.]/', $_REQUEST['p']) ) 
+			if ( is_array( $_REQUEST['p'] ) || preg_match('/[^\w\_\-\|\.]/', $_REQUEST['p']) ) 
 				return trigger_error("Please don't hack...", E_USER_ERROR);
 			$project = new Ansible__ProjectProxy( $_REQUEST['p'], $ctl->stage );
 			if ( $project->exists() && ! $project->archived() ) {
@@ -44,6 +44,10 @@ class Ansible__actions extends Stark__Controller__Base {
 				$project->archive($user);
 			}
 		}
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		$ctl->redirect('../list.php');
 		exit;
 	}
@@ -58,6 +62,10 @@ class Ansible__actions extends Stark__Controller__Base {
 				$project->unarchive($user);
 			}
 		}
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		$ctl->redirect('../list.php?cat=archived');
 		exit;
 	}
@@ -71,6 +79,10 @@ class Ansible__actions extends Stark__Controller__Base {
 				$project->proxy_obj->set_and_save(array('rlgp_id' => null));
 			}
 		}
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		$ctl->redirect('../list.php');
 		exit;
 	}
@@ -145,6 +157,10 @@ class Ansible__actions extends Stark__Controller__Base {
 		}
 		###  Else, just bounce
 		else {
+
+			###  Make other processes not lock and wait for session
+			session_write_close();
+
 			$ctl->redirect( $bounce_url );
 			exit;
 		}
@@ -199,6 +215,8 @@ class Ansible__actions extends Stark__Controller__Base {
 		if ( empty( $_REQUEST['p'] ) )
 			$ctl->redirect('list.php');
 		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
+
+		if ( empty( $_REQUEST['refresh'] ) ) $ctl->stage->skip_revsion_cache_update = true;
 
 		$file     = $_REQUEST['file'];
 		if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) 
@@ -312,6 +330,8 @@ class Ansible__actions extends Stark__Controller__Base {
 			$ctl->redirect('list.php');
 		$projects = $ctl->stage->get_projects_from_param($_REQUEST['p']);
 
+		if ( empty( $_REQUEST['refresh'] ) ) $ctl->stage->skip_revsion_cache_update = true;
+
 		$file     = $_REQUEST['file'];
 		$from_rev = $_REQUEST['from_rev'];
 		$to_rev   = $_REQUEST['to_rev'];
@@ -404,6 +424,10 @@ class Ansible__actions extends Stark__Controller__Base {
 
 	public function refresh_file_lists_page($ctl) {
 		$ctl->stage->updateStatus(true,'complete');
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		exit;
 	}
 
@@ -422,6 +446,10 @@ class Ansible__actions extends Stark__Controller__Base {
 				}
 			}
 		}
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
 		exit;
 	}
@@ -438,6 +466,10 @@ class Ansible__actions extends Stark__Controller__Base {
 				$project->set_file_tag($proj_file, $cur_rev);
 			}
 		}
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
+
 		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
 		exit;
 	}
@@ -465,6 +497,9 @@ class Ansible__actions extends Stark__Controller__Base {
 		foreach( $projects as $project ) {
 			$project->proxy_obj->set_and_save(array('rlgp_id' => $add_to_group->proxy_obj->rlgp_id));
 		}
+
+		###  Make other processes not lock and wait for session
+		session_write_close();
 		
 		$ctl->redirect( $_REQUEST['redir'] ?: '../list.php');
 		exit;

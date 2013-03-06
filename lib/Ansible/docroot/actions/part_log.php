@@ -7,6 +7,9 @@ $modal_mode = isset($_REQUEST['m']);
 <h2><?php echo $view->command_name ?> log entries of <?php echo $view->file ?> from -r <?php echo $view->from_rev ?> to -r <?php echo $view->to_rev ?></h2>
 <p>
 	<?php if ( !$modal_mode ) { ?><a href="../project.php?<?php echo $view->project_url_params ?>">Go Back</a><?php } ?>
+	<div style="float: right; width: 180px; text-align: right">
+		<a href="<?php echo $_SERVER['REQUEST_URI'] ?>&refresh=1">Refresh Revisions</a>
+	</div>
 	<?php if ( true ) { ?>
 		<a href="javascript:void(null)" onclick="activateLogProposeMerge()">Propose Merge</a>
 		<div id="propose-merge"

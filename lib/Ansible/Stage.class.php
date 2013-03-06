@@ -50,6 +50,41 @@ class Ansible__Stage {
 
 	public $guest_users = array('guest', 'pmgr_tunnel');
 
+	public $rollout_script
+		= array( 'alpha' => array( 'title' => 'Rollout Process',
+								   'pre_content' => "When you are ready, review the below file list to make sure:", # wrapped in <p>
+								   'steps' => array( 'All needed code and display logic files are here',
+                                                     'Any needed database patch scripts are listed (if any)',
+                                                     'In the "Current Status" column everything is "Up-to-date"',
+                                                     'In the "Changes by" column, they are all your changes',
+                                                     ),
+								   'post_content' => "Then, tell QA and they will continue in the <a href=\"{link_role:beta}\">QA Staging Area</a>", # wrapped in <p>
+								   ),
+				 'beta' => array( 'title' => 'Rollout Process - QA STAGING PHASE',
+								  'pre_content' => null, # wrapped in <p>
+								  'steps' => array( 'Once developer is ready, <a href="{link_action_update:Target|01_staging}">Update to Target</a>',
+													'-- Perform QA testing --' =>
+													array('For minor updates, <a href="{link_action_update:Target|01_staging}">Update to Target again</a>',
+														  'If major problems, <a href="{link_action_update:PROD_TEST|00_none}">Roll back to Previous Rollout Tag (Production)</a>',
+														  ),
+													'When everything checks out, <a href="{link_action_tag:PROD_TEST|03_testing_done}">Tag as Rollout Tag</a>',
+													),
+								  'post_content' => "Then, <a href=\"{link_role:live}\">Switch to Live Production Area</a>", # wrapped in <p>
+								  ),
+				 'live' => array( 'title' => 'Rollout Process - PRODUCTION PHASE',
+								  'pre_content' => 'Check that in the "Current Status" column there are <b>no "Locally Modified" or "Needs Merge" statuses</b>!!', # wrapped in <p>
+								  'steps' => array( 'Set set a safe rollback point, <a href="{link_action_tag:PROD_SAFE|04_prod_rollout_prep}Tag as Rollback Tag</a>',
+													'Then to roll it all out, <a href="{link_action_update:PROD_TEST|05_rolled_out}">Update to Rollout Tag</a>',
+													'-- Perform QA testing --' =>
+													array('If any problems, <a href="{link_action_update:PROD_SAFE|03_testing_done}">Roll back to Rollback Tag</a>',
+														  'While fixes are made, <a href="{link_action_tag:PROD_TEST|01_staging}">Re-tag to Rollout Tag</a>',
+														  'Then, go back to the <a href="{link_role:beta}">QA Staging Area</a> and continue with Step 1 or Step 2.',
+														  ),
+													),
+								  'post_content' => null, # wrapped in <p>
+								  ),
+				 );
+
 	public $sub_stage_name_by_class
 		= array( 'switch_env'       => 'Switch to {ENV_NAME}',
 				 'update_to_target' => 'Update to Target',
@@ -551,23 +586,12 @@ class Ansible__Stage {
 			START_TIMER('Stage->get_projects()', PROJECT_PROJECT_TIMERS);
 			$projects = array();
 	
-			require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
-			$projects_in_groups = array();
-			if ( ! $no_grouping ) {
-				foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
-					foreach ( $group->projects as $project ) {
-						$projects_in_groups[ $project->proxy()->project_name ] = true;
-					}
-					$projects[] = 'RollGroup|'. $group->rlgp_id;
-				}
-			}
-
 			$projects = array();
 
 			require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
 			$projects_in_groups = array();
 			if ( ! $no_grouping ) {
-				foreach ( Ansible__RollGroup::get_where(array()) as $group ) {
+				foreach ( Ansible__RollGroup::get_where(array('archived' => 0)) as $group ) {
 					foreach ( $group->projects as $project ) {
 						$projects_in_groups[ $project->proxy()->project_name ] = true;
 					}
@@ -594,11 +618,32 @@ class Ansible__Stage {
 
 	public function get_archived_projects() {
 
+		$projects = array();
+
+		require_once(dirname(__FILE__) .'/model/RollGroup.class.php');
+		$projects_in_groups = array();
+		if ( ! $no_grouping ) {
+			foreach ( Ansible__RollGroup::get_where(array('archived' => 1)) as $group ) {
+				foreach ( $group->projects as $project ) {
+					$projects_in_groups[ $project->proxy()->project_name ] = true;
+				}
+				$projects[] = 'RollGroup|'. $group->rlgp_id;
+			}
+		}
+
 		///  Get the files from an ls
 		$tmp = func_get_args();
 		$project_base = $this->config('project_base');
 		$ignore_regex = $this->config('project_base_ignore_regexp');
 		if ( ! is_dir($project_base) ) return $this->call_remote( __FUNCTION__, $tmp );
+
+		foreach ( explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base/archive | /bin/grep -E -v '^($ignore_regex)\$'`) as $project_name ) {
+			if ( isset( $projects_in_groups[ $project_name ] ) ) continue;
+			$projects[] = $project_name;
+		}
+		
+		return $projects;
+
 		return explode("\n",`unset GREP_OPTIONS; /bin/ls -1 $project_base/archive | /bin/grep -E -v '^($ignore_regex)\$'`);
 	}
 

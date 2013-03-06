@@ -3,12 +3,16 @@
 class Ansible__root extends Stark__Controller__Base {
 
 	public function directory_handler($ctl, $path) {
+
 		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', -1); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 		ini_set("session.cookie_lifetime",86400 * 60);
 		ini_set("session.gc_maxlifetime", 86400 * 60);
 		session_name('ansble_stage_sess_id');
 		session_set_cookie_params(86400*365, '/');
-		session_start();
+
+
+		require_once(dirname(dirname(dirname(__FILE__))) .'/PDOSession.class.php');
+		$ctl->stage->pdo_session = new PDOSession($ctl->stage->dbh());
 
 		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', 0); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
@@ -21,6 +25,8 @@ class Ansible__root extends Stark__Controller__Base {
 			$ctl->redirect($ctl->stage->url_prefix.'/index.php?redir='. urlencode($_SERVER['REQUEST_URI']));
 			exit;
 		}
+
+
 
 		/* HOOK */$__x = $ctl->stage->extend->x('root_directory_handler', 10); foreach($__x->rhni(get_defined_vars()) as $__xi) $__x->sv($__xi,$$__xi);$__x->srh();if($__x->hr()) return $__x->get_return();
 
@@ -110,7 +116,7 @@ class Ansible__root extends Stark__Controller__Base {
 		        ###  Get Current Version
 #		        $file_line['cur_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
 #		            global $stage;
-				    START_TIMER('current_version column', PROJECT_PROJECT_TIMERS);
+				    START_TIMER('project_page - current_version column', PROJECT_PROJECT_TIMERS);
 		            if ( ! file_exists($stage->env()->repo_base ."/$file") ) {
 		                $cur_vers = '<i>-- n/a --</i>';
 		            } else if ( is_dir($stage->env()->repo_base ."/$file") ) {
@@ -131,7 +137,7 @@ class Ansible__root extends Stark__Controller__Base {
 		                }
 		            }
 		
-				    END_TIMER('current_version column', PROJECT_PROJECT_TIMERS);
+				    END_TIMER('project_page - current_version column', PROJECT_PROJECT_TIMERS);
 		            $file_line['cur_vers'] =  $cur_vers;
 #return $cur_vers;
 #DELAY
@@ -141,7 +147,7 @@ class Ansible__root extends Stark__Controller__Base {
 ###  		        ###  Get PROD_SAFE Version
 ###  #		        $file_line['prod_safe_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
 ###  #		            global $stage;
-###  				    START_TIMER('prod_safe_version column', PROJECT_PROJECT_TIMERS);
+###  				    START_TIMER('project_page - prod_safe_version column', PROJECT_PROJECT_TIMERS);
 ###  		
 ###  					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 ###  		
@@ -157,7 +163,7 @@ class Ansible__root extends Stark__Controller__Base {
 ###  		            }
 ###  		            else { $prod_safe_vers = '<i>-- n/a --</i>'; }
 ###  		
-###  				    END_TIMER('prod_safe_version column', PROJECT_PROJECT_TIMERS);
+###  				    END_TIMER('project_page - prod_safe_version column', PROJECT_PROJECT_TIMERS);
 ###  		            $file_line['prod_safe_vers'] =  $prod_safe_vers;
 ###  #return $prod_safe_vers;
 ###  #DELAY
@@ -167,7 +173,7 @@ class Ansible__root extends Stark__Controller__Base {
 		        ###  Get Live Version
 #$file_line['live_vers'] = delayed_load_span(array($file), create_function('$file',now_doc('DELAY')/*
 #global $stage;
-				    START_TIMER('live_version column', PROJECT_PROJECT_TIMERS);
+				    START_TIMER('project_page - live_version column', PROJECT_PROJECT_TIMERS);
   					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 
 		            if ( ! file_exists($stage->live_repo()->stage->env()->repo_base ."/$file") ) {
@@ -197,7 +203,7 @@ class Ansible__root extends Stark__Controller__Base {
 		            }
 					
 		
-				    END_TIMER('live_version column', PROJECT_PROJECT_TIMERS);
+				    END_TIMER('project_page - live_version column', PROJECT_PROJECT_TIMERS);
 		            $file_line['live_vers'] = $cur_vers;
 #return $cur_vers;
 #DELAY
@@ -207,7 +213,7 @@ class Ansible__root extends Stark__Controller__Base {
 		        ###  Get HEAD Version
 #$file_line['head_vers'] = delayed_load_span(array($file,$project,$file_tags), create_function('$file,$project,$file_tags',now_doc('DELAY')/*
 #global $stage;
-                    START_TIMER('head_version column', PROJECT_PROJECT_TIMERS);
+                    START_TIMER('project_page - head_version column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -230,7 +236,7 @@ class Ansible__root extends Stark__Controller__Base {
 		                $head_vers = "<div title=\"". htmlentities( $stage->repo()->get_log($file) ) ."\"><i>". $error ."</i></div>";
 		            }
 		
-				    END_TIMER('head_version column', PROJECT_PROJECT_TIMERS);
+				    END_TIMER('project_page - head_version column', PROJECT_PROJECT_TIMERS);
 		            $file_line['head_vers'] =  $head_vers;
 #return $head_vers;
 #DELAY
@@ -240,7 +246,7 @@ class Ansible__root extends Stark__Controller__Base {
 		        ###  Do Target
 #$file_line['target_vers'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
 #global $stage;
-				    START_TIMER('target_version column', PROJECT_PROJECT_TIMERS);
+				    START_TIMER('project_page - target_version column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -256,7 +262,7 @@ class Ansible__root extends Stark__Controller__Base {
 						else {                           $target_vers = "<b><font color=green>". $rev_display ."</font></b>"; }
 		            }
 		
-				    END_TIMER('target_version column', PROJECT_PROJECT_TIMERS);
+				    END_TIMER('project_page - target_version column', PROJECT_PROJECT_TIMERS);
 		            $file_line['target_vers'] =  $target_vers;
 #return $target_vers;
 #DELAY
@@ -266,7 +272,7 @@ class Ansible__root extends Stark__Controller__Base {
 		        ###  Changes by
 #$file_line['changes_by'] = delayed_load_span(array($file,$project), create_function('$file,$project',now_doc('DELAY')/*
 #global $stage;
-				    START_TIMER('changes_by column', PROJECT_PROJECT_TIMERS);
+				    START_TIMER('project_page - changes_by column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -295,7 +301,7 @@ class Ansible__root extends Stark__Controller__Base {
 		                if ( empty($changes_by) ) $changes_by = count( $diff_revs ) .' rev'. (count($diff_revs) == 1 ? '' : 's') . ($names ? (', '. join(', ',$names)) : '');
 		            }
 		
-				    END_TIMER('changes_by column', PROJECT_PROJECT_TIMERS);
+				    END_TIMER('project_page - changes_by column', PROJECT_PROJECT_TIMERS);
 		            $file_line['changes_by'] =  $changes_by;
 #return $changes_by;
 #DELAY
@@ -305,7 +311,7 @@ class Ansible__root extends Stark__Controller__Base {
 		        ###  Actions
 #$file_line['actions'] = delayed_load_span(array($file,$project,$projects), create_function('$file,$project,$projects',now_doc('DELAY')/*
 #global $stage;
-				    START_TIMER('action column', PROJECT_PROJECT_TIMERS);
+				    START_TIMER('project_page - action column', PROJECT_PROJECT_TIMERS);
 		
 					list($cur_rev) = $stage->repo()->get_current_rev( $file );
 		
@@ -341,7 +347,7 @@ class Ansible__root extends Stark__Controller__Base {
 		                             );
 		            }
 		
-				    END_TIMER('action column', PROJECT_PROJECT_TIMERS);
+				    END_TIMER('project_page - action column', PROJECT_PROJECT_TIMERS);
 		            $file_line['actions'] =  $actions;
 #return $actions;
 #DELAY

@@ -13,7 +13,9 @@ class Ansible__Repo__SVNCached extends Ansible__Repo__SVN {
 	public function get_repo_new_revisions() {
 		$svn_root = $this->get_svn_root();
 
-		if ( ! isset( self::$__loaded_new_revs[$svn_root] ) ) {
+		if ( ! isset( self::$__loaded_new_revs[$svn_root] )
+		 	 && empty( $this->stage->skip_revsion_cache_update )
+		 	 ) {
 #			bug($this->expire_token());
 			START_TIMER('get_repo_new_revisions()', PROJECT_PROJECT_TIMERS);
 			foreach ( $this->stage->dbh()->query("SELECT MAX(revision) FROM commit_cache") as $row ) {
@@ -83,7 +85,7 @@ class Ansible__Repo__SVNCached extends Ansible__Repo__SVN {
 		list($revs,$committers,$full) = $this->get_all_log_revs( $file );
 
 		$output = '';
-		foreach ( $full as $commit ) {
+		foreach ( (array) $full as $commit ) {
 			$lines = preg_split('/(\r\n|\n\r|\r|\n)/', $commit->message);
 			$output .= '
 ------------------------------------------------------------------------

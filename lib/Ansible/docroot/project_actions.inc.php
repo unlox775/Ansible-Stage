@@ -26,83 +26,96 @@
 			<?php foreach ( (array) $proj_params['p'] as $proj_name ) { ?>
 				<input type="hidden" name="p[]" value="<?php echo $proj_name ?>"/>
 			<?php } ?>
-			<p>
-				Add Project(s) to Group:
-				<?php 
-				  $groups = array();
-				  foreach ( $stage->get_projects() as $project_item ) {
-					  $test_project = new Ansible__ProjectProxy($project_item, $stage);
-					  if ( $test_project->proxy_mode == 'group' ) {
-						  $groups[] = $test_project;
+			<?php 
+			  $groups = array();
+			  foreach ( $stage->get_projects() as $project_item ) {
+				  $test_project = new Ansible__ProjectProxy($project_item, $stage);
+				  if ( $test_project->proxy_mode == 'group' ) {
+					  $groups[] = $test_project;
+				  }
+			  }
+			  $this_group = null;
+			  foreach ( $view->projects as $project ) {
+				  $group = $project->get_roll_group();
+				  if ( ! is_null( $group ) ) {
+					  if ( $this_group === null ) {
+						  $this_group = $group;
+					  }
+					  else if ( $this_group->project_name != $group->project_name ) {
+						  /// Too bad...
+						  $this_group = null;
+						  break;
 					  }
 				  }
-				?>
-				<select name="group_name">
-					<?php foreach ( $groups as $g_proj ) { ?>
-						<option value="<?php echo $g_proj->project_name ?>"><?php echo $g_proj->get_display_name() ?></option>
-					<?php } ?>
-				</select>
-				<input type="submit" value="Go"/>
-			</p>
+			  }
+			?>
+			<?php /* if ( $this_group && ! $this_group->is_roll_group() ) { */ ?>
+				<p>
+					Add Project(s) to Group:
+					<select name="group_name">
+						<option value="">-- Choose Group --</option>
+						<?php foreach ( $groups as $g_proj ) { ?>
+							<option value="<?php echo $g_proj->project_name ?>" <?php if ( $this_group && $g_proj->project_name == $this_group->project_name ) echo 'selected="selected"' ?>><?php echo $g_proj->get_display_name() ?></option>
+						<?php } ?>
+					</select>
+					<input type="submit" value="Go"/>
+				</p>
+			<?php /* } */ ?>
 			</form>
 		</td>
 
 		<td align="left" valign="top">
-			<!-- ///// Rollout process for different phases /////
-			     -->
-			<?php if ( $stage->onAlpha() ) { ?>
-				<h4>Rollout Process</h4>
-				When you are ready, review the below file list to make sure:
+			<?php
+			  $GLOBALS['pactions_view'] = $view;
+			  $GLOBALS['pactions_stage'] = $stage;
+
+			  ///  Swap Functions
+			  function pactions_link_action_update($x,$set_group) { return "javascript: confirmAction('UPDATE','actions/update.php?". $GLOBALS['pactions_view']->project_url_params ."&tag=". $x . ( $set_group ? '&set_group='. $set_group : '' ) ."')"; }
+			  function pactions_link_action_tag($x,$set_group)    { return "javascript: confirmAction('TAG', 'actions/tag.php?". $GLOBALS['pactions_view']->project_url_params ."&tag=". $x . ( $set_group ? '&set_group='. $set_group : '' ) ."')"; }
+			  function pactions_link_role($x)                     { return $GLOBALS['pactions_stage']->get_area_url($x, 'project.php'); }
+			  
+			  function pactions_swap($str) {
+				  return preg_replace_callback('/{(\w+)(?:\:([^\}]+))}/','pactions_swap_replace',$str);
+			  }
+			  function pactions_swap_replace($m) {
+				  if ( function_exists('pactions_'.$m[1]) ) {
+					  $params = array(); if ( ! empty( $m[2] ) ) { foreach(explode('|',$m[2]) as $x) { $params[] = urldecode($x); } }
+					  return call_user_func_array('pactions_'.$m[1], $params);
+				  }
+			  }
+
+
+			  function pactions_li_nest($ary) {
+				  $return_str = '';
+				  foreach ( (array) $ary as $i => $val ) {
+					  if ( is_int($i) ) {
+						  $return_str .= '<li>'. pactions_swap( $val ) .'</li>';
+					  }
+					  else {
+						  $return_str .= '<li>'. pactions_swap( $i ) .'<ol>'. pactions_li_nest($val) .'</ol></li>';
+					  }
+				  }
+				  return $return_str;
+			  }
+
+			  ///  Which script section to pull
+			  if ( isset( $stage->env()->role ) && isset( $stage->rollout_script[ $stage->env()->role ] ) ) {
+				  $roll_script = $stage->rollout_script[ $stage->env()->role ];
+			  } else if ( isset( $stage->rollout_script['alpha'] ) ) {
+				  $roll_script = $stage->rollout_script['alpha'];
+			  }
+			?>
+
+			<?php if ( ! $roll_script ) { ?>
+				<i>Config error: No Rollout script.  You must at least define a script for 'alpha' as a catchall script.</i>
+			<?php } else { ?>
+				<h4><?php echo pactions_swap($roll_script['title']) ?></h4>
+				<?php if ( ! empty( $roll_script['pre_content'] ) ) { ?><p><?php echo pactions_swap($roll_script['pre_content']) ?></p><?php } ?>
 				<ol>
-					<li>All needed code and display logic files are here</li>
-					<li>Any needed database patch scripts are listed (if any)</li>
-					<li>In the "Current Status" column everything is "Up-to-date"</li>
-					<li>In the "Changes by" column, they are all ychanges</li>
+					<?php echo pactions_li_nest($roll_script['steps']) ?>
 				</ol>
-				Then, tell QA and they will continue in the <a href="<?php echo $stage->get_area_url('beta','project.php') ?>">QA Staging Area</a>
-			<?php } else if ( $stage->onBeta() ) { ?>
-				<?php if ( $stage->read_only_mode() ) { ?>
-					<h4>Rollout Process - QA STAGING PHASE</h4>
-					<b>Step 1</b>: Once developer is ready, Update to Target<br>
-					<b>Step 2</b>: <i> -- Perform QA testing -- </i><br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2a</b>: For minor updates, Update to Target again<br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, Roll back to Previous Rollout Tag (Production)<br>
-					<b>Step 3</b>: When everything checks out, Tag as Rollout Tag<br>
-					<br>
-					Then, <a href="<?php echo $stage->get_area_url('live','project.php') ?>">Switch to Live Production Area</a>
-				<?php } else { ?>
-					<h4>Rollout Process - QA STAGING PHASE</h4>
-					<b>Step 1</b>: Once developer is ready, <a href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=Target&set_group=01_staging')"	  >Update to Target</a><br>
-					<b>Step 2</b>: <i> -- Perform QA testing -- </i><br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2a</b>: For minor updates, <a		 href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=Target')"   >Update to Target again</a><br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 2b</b>: If major problems, <a		 href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST&set_group=00_none')">Roll back to Previous Rollout Tag (Production)</a><br>
-					<b>Step 3</b>: When everything checks out, <a href="javascript: confirmAction('TAG',   'actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST&set_group=03_testing_done')"		>Tag as Rollout Tag</a><br>
-					<br>
-					Then, <a href="<?php echo $stage->get_area_url('live','project.php') ?>">Switch to Live Production Area</a>
-				<?php } ?>
-			<?php } else if ( $stage->onLive() ) { ?>
-				<?php if ( $stage->read_only_mode() ) { ?>
-					<h4>Rollout Process - PRODUCTION PHASE</h4>
-					Check that in the "Current Status" column there are <b><u>no <b>"Locally Modified"</b> or <b>"Needs Merge"</b> statuses</u></b>!!
-					<br>
-					<b>Step 4</b>: Set set a safe rollback point, Tag as Rollback Tag<br>
-					<b>Step 5</b>: Then to roll it all out, Update to Rollout Tag<br>
-					<b>Step 6</b>: <i> -- Perform QA testing -- </i><br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, Roll back to Rollback Tag<br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, Re-set Previous Rollout Tag<br>
-					Then, go back to the <a href="<?php echo $stage->get_area_url('beta','project.php') ?>">QA Staging Area</a> and continue with <b>Step 1</b> or <b>Step 2</b>.
-				<?php } else { ?>
-					<h4>Rollout Process - PRODUCTION PHASE</h4>
-					Check that in the "Current Status" column there are <b><u>no <b>"Locally Modified"</b> or <b>"Needs Merge"</b> statuses</u></b>!!
-					<br>
-					<b>Step 4</b>: Set set a safe rollback point, <a href="javascript: confirmAction('TAG',	  'actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_SAFE&set_group=04_prod_rollout_prep')"		>Tag as Rollback Tag</a><br>
-					<b>Step 5</b>: Then to roll it all out, <a		href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST&set_group=05_rolled_out')">Update to Rollout Tag</a><br>
-					<b>Step 6</b>: <i> -- Perform QA testing -- </i><br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6a</b>: If any problems, <a	   href="javascript: confirmAction('UPDATE','actions/update.php?<?php echo $view->project_url_params ?>&tag=PROD_SAFE&set_group=03_testing_done')">Roll back to Rollback Tag</a><br>
-					&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Step 6b</b>: While fixes are made, <a href="javascript: confirmAction('TAG','actions/tag.php?<?php echo $view->project_url_params ?>&tag=PROD_TEST&set_group=01_staging')">Re-tag to Rollout Tag</a><br>
-					Then, go back to the <a href="<?php echo $stage->get_area_url('beta','project.php') ?>">QA Staging Area</a> and continue with <b>Step 1</b> or <b>Step 2</b>.
-				<?php } ?>
-			<?php } ?>
+				<?php if ( ! empty( $roll_script['post_content'] ) ) { ?><p><?php echo pactions_swap($roll_script['post_content']) ?></p><?php } ?>
+			<?php }  ?>
 		</td>
 	</tr>
 </table>

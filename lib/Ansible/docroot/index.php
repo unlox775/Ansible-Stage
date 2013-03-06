@@ -2,6 +2,7 @@
 <? require(dirname($_SERVER['SCRIPT_FILENAME']) .'/ansible-controller.inc.php') ?>
 <?php $view->scoped_include( $_SERVER['DOCUMENT_ROOT'] . $ctl->SKIN_BASE .'/inc/mini-header.inc.php' ); ?>
 
+
 <?php
 
 $redir_url = '/list.php';

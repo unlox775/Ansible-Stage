@@ -52,7 +52,7 @@ class Ansible__ProjectProxy {
 			$this->project_name = $path;
 			$this->archived = $is_archived;
 		}
-		///  ProxyMode : Project by ProjectId
+		///  ProxyMode : Project by ProjectCode
 		else if ( strpos($project_name, 'ProjectCode|') === 0 ) {
 			$project_code = substr($project_name, 12);
 			list( $path, $is_archived ) = self::get_path_by_code($project_code);
@@ -78,6 +78,14 @@ class Ansible__ProjectProxy {
     public static function get_by_project_id(  $proj_id,      $stage) { return( self::$proj_id_obj_map[   $proj_id      ] ?: self::$proj_id_obj_map[   $proj_id      ] = new Ansible__ProjectProxy('ProjectID|'.   $proj_id,      $stage) ); }
     public static function get_by_project_code($project_code, $stage) { return( self::$proj_code_obj_map[ $project_code ] ?: self::$proj_code_obj_map[ $project_code ] = new Ansible__ProjectProxy('ProjectCode|'. $project_code, $stage) ); }
     public static function get_by_rollgroup_id($rlgp_id,      $stage) { return( self::$rlgp_id_obj_map[   $rlgp_id      ] ?: self::$rlgp_id_obj_map[   $rlgp_id      ] = new Ansible__ProjectProxy('RollGroup|'.   $rlgp_id,      $stage) ); }
+
+
+	public function is_roll_group() {
+		return( $this->proxy_mode == 'group' );
+	}
+	public function get_roll_group() {
+		return( $this->is_roll_group() ? null : ( $this->proxy_obj->rlgp_id ? self::get_by_rollgroup_id( $this->proxy_obj->rlgp_id, $this->stage ) : null ) );
+	}
 
     public function exists() {
         return( ( $this->proxy_mode == 'project' ) ? $this->file_exists('affected_files.txt') : true );
@@ -116,7 +124,7 @@ class Ansible__ProjectProxy {
 				return trigger_error("Please don't hack...", E_USER_ERROR);
 
 			$this->backup_project_mod_time();
-			$archived = $this->archived ? 'archive/' : '';
+			$archived = $this->archived() ? 'archive/' : '';
 			file_put_contents("$project_base/$archived$this->project_name/.project_code", $newcode);
 			link("$project_base/$archived$this->project_name/.project_code","$project_base/$archived$this->project_name/.project_code_$newcode");
 			$this->restore_project_mod_time();
@@ -155,10 +163,14 @@ class Ansible__ProjectProxy {
 	}
 
     public function archived() {
+        if ( $this->proxy_mode != 'project' ) return( $this->proxy_obj->archived != 0 );
+
         return $this->archived;
     }
 
-    public function get_group() {
+    public function get_group($just_this_project = null) {
+		if ( ! $just_this_project && $this->get_roll_group() ) return $this->get_roll_group()->get_group();
+
         if ( $this->proxy_mode != 'project' ) return( empty( $this->proxy_obj->rollout_stage ) ? '00_none' : trim( $this->proxy_obj->rollout_stage ) );
 
         $group = $this->get_file('.group');
@@ -186,7 +198,7 @@ class Ansible__ProjectProxy {
 
 		$project_base = $this->stage->config('project_base');
         if ( ! is_dir($project_base) ) return call_remote( __FUNCTION__, func_get_args() );
-        $archived = $this->archived ? 'archive/' : '';
+        $archived = $this->archived() ? 'archive/' : '';
 		$ret = `/bin/ls -la --time-style=long-iso $project_base/$archived$this->project_name | head -n2 | tail -n1`;
 		END_TIMER('Project->get_ls()', PROJECT_PROJECT_TIMERS);
         return $ret;
@@ -200,7 +212,7 @@ class Ansible__ProjectProxy {
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
         if ( ! is_dir($this->stage->config('project_base')) ) return call_remote( __FUNCTION__, func_get_args() );
-        $archived = $this->archived ? 'archive/' : '';
+        $archived = $this->archived() ? 'archive/' : '';
         $ret = stat($this->stage->config('project_base') ."/$archived$this->project_name");
 		END_TIMER('Project->get_stat()', PROJECT_PROJECT_TIMERS);
 		return $ret;
@@ -214,7 +226,7 @@ class Ansible__ProjectProxy {
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) return trigger_error("Please don't hack...", E_USER_ERROR);
 
         if ( ! is_dir($this->stage->config('project_base')) ) return call_remote( __FUNCTION__, func_get_args() );
-        $archived = $this->archived ? 'archive/' : '';
+        $archived = $this->archived() ? 'archive/' : '';
         return ( file_exists($this->stage->config('project_base') ."/$archived$this->project_name/$file") );
     }
 
@@ -225,7 +237,7 @@ class Ansible__ProjectProxy {
             return trigger_error("Please don't hack...", E_USER_ERROR);
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $file, $m) ) return trigger_error("Please don't hack...", E_USER_ERROR);
 
-        $archived = $this->archived ? 'archive/' : '';
+        $archived = $this->archived() ? 'archive/' : '';
         $file_path = $this->stage->config('project_base') ."/$archived$this->project_name/$file";
 		if ( ! isset( self::$get_file_cache[ $file_path ] ) ) {
 			START_TIMER('Project->get_file()', PROJECT_PROJECT_TIMERS);
@@ -284,13 +296,16 @@ class Ansible__ProjectProxy {
 		return isset( self::$affected_file_lookup[ $this->project_name ][ $file ] );
 	}
 
-    public function get_file_tags()  {
+    public function get_file_tags($just_this_project = false)  {
+		if ( ! $just_this_project && $this->get_roll_group() ) return $this->get_roll_group()->get_file_tags();
+
         if ( empty( $this->file_tags_cache ) ) {
+			START_TIMER('Project->get_file_tags()', PROJECT_PROJECT_TIMERS);
             $this->file_tags_cache = array();
 			///  Group Mode
 			if ( $this->proxy_mode == 'group' ) {
 				foreach ( $this->proxy_obj->projects as $project ) {
-					foreach ( $project->proxy()->get_file_tags() as $file => $rev ) {
+					foreach ( $project->proxy()->get_file_tags(true) as $file => $rev ) {
 						if ( ! isset( $this->file_tags_cache[ $file ] )
 							 || $this->file_tags_cache[ $file ] < $rev
 							 ) {
@@ -307,13 +322,16 @@ class Ansible__ProjectProxy {
 					$this->file_tags_cache[ $vals[0] ] = $vals[1];
 				}
 			}
+			END_TIMER('Project->get_file_tags()', PROJECT_PROJECT_TIMERS);
         }
     
         return $this->file_tags_cache;
     }
 
-    public function set_file_tag($file, $rev) {
-        $archived = $this->archived ? 'archive/' : '';
+    public function set_file_tag($file, $rev, $just_this_project = false) {
+		if ( ! $just_this_project && $this->get_roll_group() ) return $this->get_roll_group()->set_file_tag($file, $rev);
+
+        $archived = $this->archived() ? 'archive/' : '';
         $file_path = $this->stage->config('project_base') ."/$archived$this->project_name/file_tags.csv";
 
 		///  Group Mode
@@ -321,7 +339,7 @@ class Ansible__ProjectProxy {
 			foreach ( $this->proxy_obj->projects as $project ) {
 				foreach ( $project->proxy()->get_affected_files() as $proj_file ) {
 					if ( $proj_file == $file ) {
-						$project->proxy()->set_file_tag($file, $rev);
+						$project->proxy()->set_file_tag($file, $rev, true);
 					}
 				}
 			}
@@ -375,7 +393,13 @@ class Ansible__ProjectProxy {
     ###  Write-Access Actions 
 
     public function archive($user, $time = null) {
-        if ( $this->proxy_mode != 'project' ) return null;
+        if ( $this->proxy_mode != 'project' ) { 
+			foreach ( $this->proxy_obj->projects as $project ) {
+				$project->proxy()->archive($user, $time);
+			}
+
+			return $this->proxy_obj->set_and_save(array('archived' => 1));
+		}
 
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
             return trigger_error("Please don't hack...", E_USER_ERROR);
@@ -404,6 +428,14 @@ class Ansible__ProjectProxy {
     }
 
     public function unarchive($user, $time = null) {
+        if ( $this->proxy_mode != 'project' ) {
+			foreach ( $this->proxy_obj->projects as $project ) {
+				$project->proxy()->unarchive($user, $time);
+			}
+
+			return $this->proxy_obj->set_and_save(array('archived' => 0));
+		}
+
         if ( $this->proxy_mode != 'project' ) return null;
 
         if ( preg_match('@^/|(^|/)\.\.?($|/)|[\"\'\`\(\)\[\]\&\|\>\<]@', $this->project_name, $m) ) 
@@ -441,7 +473,7 @@ class Ansible__ProjectProxy {
             return trigger_error("Please don't hack...", E_USER_ERROR);
 
         $this->backup_project_mod_time();
-        $archived = $this->archived ? 'archive/' : '';
+        $archived = $this->archived() ? 'archive/' : '';
         if ( $group == '00_none' ) {
             print `rm -f       $project_base/$archived$this->project_name/.group`;
         } else {
@@ -462,7 +494,7 @@ class Ansible__ProjectProxy {
         if ( ! is_dir($this->stage->config('project_base')) ) return call_remote( __FUNCTION__, func_get_args() );
         
         ///  Restore to the backup
-        $archived = $this->archived ? 'archive/' : '';
+        $archived = $this->archived() ? 'archive/' : '';
         @touch($this->stage->config('project_base') ."/$archived$this->project_name", $this->mod_time_bak);
         
         return true;
